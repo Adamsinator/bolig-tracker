@@ -695,8 +695,15 @@ def confirm_encumbrance(listings):
 
 
 def annotate_metro(listings, transit):
-    """Add nearest metro/letbane distance (mst) and a combined near-rail flag."""
-    pts = [(st["lat"], st["lon"]) for st in (transit or {}).get("stations", [])]
+    """Add nearest-metro distance (mst) and a combined near-rail flag.
+
+    mst is measured against genuine Metro (subway) stations only. OSM's
+    light_rail tagging around Copenhagen is unreliable — it mislabels many
+    S-train stops (Holte, Farum, København H…) as light_rail — so folding
+    those into a "metro" distance would be wrong. The letbane still rides
+    along on the map overlay; it just doesn't drive the pricing signal."""
+    pts = [(st["lat"], st["lon"]) for st in (transit or {}).get("stations", [])
+           if st.get("mode") == "metro"]
     for r in listings:
         if pts:
             best = min(haversine_m(r["lat"], r["lon"], la, lo) for la, lo in pts)

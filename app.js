@@ -283,6 +283,8 @@ function setupGeo(which) {
 
 /* ===================== filtering ===================== */
 const NEW_DAYS = 14;   // "Ny på markedet" = on the market at most this many days
+const METRO_NEAR_M = 1000;   // within this many m of a metro/letbane stop = "near"
+const nearMetro = r => r.mst != null && r.mst <= METRO_NEAR_M;
 function filtered() {
   return S.all.filter(r => {
     if (S.type !== 'all' && r.t !== S.type) return false;
@@ -447,7 +449,8 @@ function renderMuniStats() {
     stat('Median liggetid', s.medDays != null ? Math.round(s.medDays) + ' dage' : '–'),
     stat('Nær S-tog', s.nearPct != null ? s.nearPct + ' %' : '–'),
     stat('Prisnedsat', s.pctCut != null ? s.pctCut + ' %' : '–'),
-    stat('S-togspræmie', s.premium != null ? (s.premium >= 0 ? '+' : '') + s.premium + ' %' : '–'));
+    stat('S-togspræmie', s.premium != null ? (s.premium >= 0 ? '+' : '') + s.premium + ' %' : '–'),
+    stat('Metropræmie', s.metroPremium != null ? (s.metroPremium >= 0 ? '+' : '') + s.metroPremium + ' %' : '–'));
   box.append(el('div', { class: 'kstats-head' }, el('b', {}, name), el('span', { class: 'src' }, ' · ' + (S.type === 'all' ? 'alle boligtyper' : S.type === 'condo' ? 'ejerlejligheder' : 'villaer'))));
   box.append(wrap);
   // rooms + energy-label mix for the selected kommune
@@ -893,6 +896,7 @@ function kmStats(slug) {
   const m2 = rows.map(r => r.m2p).filter(Boolean), pr = rows.map(r => r.p).filter(Boolean), dd = rows.map(r => r.d).filter(v => v != null);
   const areas = rows.map(r => r.a).filter(Boolean);
   const near = rows.filter(r => r.near).map(r => r.m2p).filter(Boolean), far = rows.filter(r => !r.near).map(r => r.m2p).filter(Boolean);
+  const mNear = rows.filter(r => nearMetro(r)).map(r => r.m2p).filter(Boolean), mFar = rows.filter(r => r.mst != null && !nearMetro(r)).map(r => r.m2p).filter(Boolean);
   const cuts = rows.filter(r => r.chg < 0).length, nearN = rows.filter(r => r.near).length;
   return {
     n: rows.length,
@@ -903,6 +907,8 @@ function kmStats(slug) {
     nearPct: rows.length ? Math.round(nearN / rows.length * 100) : null,
     pctCut: rows.length ? Math.round(cuts / rows.length * 100) : null,
     premium: (near.length && far.length) ? Math.round((median(near) / median(far) - 1) * 100) : null,
+    // needs enough homes on both sides of the metro line to be meaningful — else null
+    metroPremium: (mNear.length >= 8 && mFar.length >= 8) ? Math.round((median(mNear) / median(mFar) - 1) * 100) : null,
   };
 }
 function renderCompare() {
@@ -917,6 +923,7 @@ function renderCompare() {
     ['Median liggetid', A.medDays, B.medDays, v => Math.round(v) + ' dage', -1],
     ['Prisnedsættelser', A.pctCut, B.pctCut, v => v == null ? '–' : v + ' %', 0],
     ['S-togspræmie', A.premium, B.premium, pct, 0],
+    ['Metropræmie', A.metroPremium, B.metroPremium, pct, 0],
   ];
   const t = el('table', { class: 'cmp-table' });
   t.append(el('thead', {}, el('tr', {}, el('th', {}, ''), el('th', {}, names[S.cmpA] || S.cmpA), el('th', {}, names[S.cmpB] || S.cmpB))));
@@ -1214,10 +1221,15 @@ function renderMapFacts(f) {
   const meds = [...byM.entries()].map(([s, a]) => ({ n: names[s] || s, v: median(a.filter(Boolean)) })).filter(x => x.v).sort((a, b) => b.v - a.v);
   const nearMed = median(f.filter(r => r.near).map(r => r.m2p).filter(Boolean));
   const farMed = median(f.filter(r => !r.near).map(r => r.m2p).filter(Boolean));
+  const mNearMed = median(f.filter(r => nearMetro(r)).map(r => r.m2p).filter(Boolean));
+  const mFarArr = f.filter(r => r.mst != null && !nearMetro(r)).map(r => r.m2p).filter(Boolean);
+  const mNearN = f.filter(r => nearMetro(r)).length;
+  const mFarMed = median(mFarArr);
   const facts = [];
   if (meds.length) facts.push(['Dyreste kommune', `${meds[0].n} · ${m2(meds[0].v)}`]);
   if (meds.length > 1) facts.push(['Billigste kommune', `${meds[meds.length - 1].n} · ${m2(meds[meds.length - 1].v)}`]);
   if (nearMed && farMed) { const prem = Math.round((nearMed / farMed - 1) * 100); facts.push(['Nær S-tog vs. længere væk', `${m2(nearMed)} <small>mod ${m2(farMed)}</small>`]); facts.push(['S-togs­præmie', (prem >= 0 ? '+' : '') + prem + ' <small>% pr. m²</small>']); }
+  if (mNearMed && mFarMed && mNearN >= 8 && mFarArr.length >= 8) { const mp = Math.round((mNearMed / mFarMed - 1) * 100); facts.push(['Metropræmie', (mp >= 0 ? '+' : '') + mp + ' <small>% pr. m²</small>']); }
   facts.forEach(([l, v]) => box.append(el('div', { class: 'mf' }, el('div', { class: 'mf-l' }, l), el('div', { class: 'mf-v', html: v }))));
 }
 
@@ -1269,8 +1281,9 @@ function fundScore(r) {
 }
 
 /* ===== hedonic "fair value" model — kr/m² predicted from a home's features
-   (size, rooms, year, floor, basement, lot, energy, distance-to-S-tog, type,
-   kommune) via ridge regression; residual = asking vs. model. Built once. ===== */
+   (size, rooms, year, floor, basement, lot, energy, distance-to-S-tog,
+   distance-to-metro, type, kommune) via ridge regression; residual = asking vs.
+   model. Built once. ===== */
 let _fv = null;
 function fairValue() {
   if (_fv) return _fv;
@@ -1282,10 +1295,15 @@ function fairValue() {
   const munis = [...new Set(rows.map(r => r.muni))].sort();
   const ER = { a: 7, b: 6, c: 5, d: 4, e: 3, f: 2, g: 1 };
   const erank = e => e ? (ER[String(e)[0].toLowerCase()] || 4) : 4;
+  // only credit metro access when this build actually has transit data — otherwise
+  // a missing mst would be imputed as distance 0 (i.e. "at a metro"), the opposite
+  // of the truth. annotate_metro fills mst for all rows or none, so this is all-or-nothing.
+  const hasMetro = rows.some(r => r.mst != null);
   const feat = r => {
     const f = [1, Math.log(r.a), (r.r || 0), (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
       (r.bsm > 0 ? 1 : 0), (Math.log((r.lot || 0) + 1) / 10), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
       (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
+    if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
     for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
     return f;
   };
