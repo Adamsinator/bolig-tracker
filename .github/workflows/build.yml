@@ -34,6 +34,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/listings.json data/meta.json data/geo.json data/history.json data/tracker.json data/priceindex.json data/bvc.json
           git add data/sold.json 2>/dev/null || true   # optional — only present when the sold fetch succeeds
+          git add data/mortgage.json 2>/dev/null || true   # optional — realkreditrenter
           if git diff --cached --quiet; then
             echo "No changes in listings — nothing to commit."
           else

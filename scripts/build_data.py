@@ -373,36 +373,104 @@ def _dst_get(path):
         print(f"  mortgage: {path} failed ({ex})", file=sys.stderr)
         return None
 
-def _dump_dims(tid):
-    info = _dst_get(f"tableinfo/{tid}?format=JSON")
-    if not info:
-        return
-    print(f"  mortgage {tid}: {info.get('text')}")
-    for v in info.get("variables") or []:
-        vals = v.get("values") or []
-        vid = v.get("id")
-        if len(vals) <= 90:
-            print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: "
-                  + "; ".join(f"{x.get('id')}={x.get('text')}" for x in vals))
-        else:
-            print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: {vals[0].get('id')}..{vals[-1].get('id')}")
+# DNRNURI: new domestic mortgage lending — carries the effective rate incl. fees
+# (datatype AL41/AL51EFFR) split by original rate-fixation, monthly back to 2003.
+# The exact datatype/other dimension codes are resolved from tableinfo at runtime
+# so the query is robust to dimensions we can't see from the sandbox.
+MORTGAGE_TABLE = "DNRNURI"
+RENTFIX_ORDER = [   # (code, short label) — filtered to what the table actually offers
+    ("1M3M", "Variabel (≤3 mdr.)"),
+    ("6M",   "Variabel (≤6 mdr.)"),
+    ("1A",   "Kort rente (≤1 år)"),
+    ("1A5A", "1–5 år"),
+    ("10A",  "5–10 år"),
+    ("S10A", "Fast (>10 år)"),
+    ("ALLE", "Alle lån"),
+]
+
+def _pick_total(values):
+    """The 'all/total' category id in a dimension (so we collapse dims we don't split on)."""
+    for x in values:
+        t = str(x.get("text") or "").lower()
+        if t.startswith("alle") or "i alt" in t:
+            return x.get("id")
+    for tot in ("ALLE", "1000", "Z01", "A1", "1400"):
+        if any(x.get("id") == tot for x in values):
+            return tot
+    return values[0].get("id") if values else None
 
 def fetch_mortgage():
-    # The classic rate tables discontinued their mortgage-bond series (~2012-14).
-    # The live effective mortgage rate by fixation lives in the MFI new/outstanding
-    # lending tables. Broaden the table listing to any "rente" table and probe the
-    # MFI realkredit tables' dimensions to locate the effective-rate measure.
-    tables = _dst_get("tables?format=JSON")
-    if tables:
-        hits = [t for t in tables if "rente" in str(t.get("text", "")).lower()
-                and any(k in str(t.get("text", "")).lower() for k in
-                        ("realkredit", "udlån", "udlaan", "husholdning", "mfi", "penge"))]
-        print(f"  mortgage: {len(hits)} lending-rate candidate tables")
-        for t in hits[:40]:
-            print(f"    {t.get('id')}: {t.get('text')}  [{t.get('updated', '')}]")
-    for tid in ("DNRNURI", "DNRUURI", "DNMUDL"):
-        _dump_dims(tid)
-    return None   # discovery only — no data emitted yet
+    info = _dst_get(f"tableinfo/{MORTGAGE_TABLE}?format=JSON")
+    if not info:
+        return None
+    variables = info.get("variables") or []
+    vmap = {v.get("id"): v for v in variables}
+    dv = vmap.get("DATA") or vmap.get("DATATYPE")
+    rf = vmap.get("RENTFIX")
+    if not dv or not rf:
+        print("  mortgage: DNRNURI missing DATA/RENTFIX dims", file=sys.stderr)
+        return None
+    eff = next((x["id"] for x in dv.get("values", [])
+                if "effektiv" in str(x.get("text", "")).lower() and "rente" in str(x.get("text", "")).lower()), None)
+    if not eff:
+        print("  mortgage: no effective-rate datatype found", file=sys.stderr)
+        return None
+    rf_ids = {x["id"] for x in rf.get("values", [])}
+    keep = [(c, lab) for c, lab in RENTFIX_ORDER if c in rf_ids] or \
+           ([("ALLE", "Alle lån")] if "ALLE" in rf_ids else [])
+    if not keep:
+        return None
+    # explicit target dims; every other dimension collapses to its total bucket
+    params = {"DATA": eff, "RENTFIX": ",".join(c for c, _ in keep), "Tid": "*"}
+    for v in variables:
+        vid = v.get("id")
+        if vid in ("DATA", "DATATYPE", "RENTFIX", "Tid"):
+            continue
+        params[vid] = _pick_total(v.get("values") or [])
+    d = _dst_get(f"data/{MORTGAGE_TABLE}/JSONSTAT?{urllib.parse.urlencode(params)}")
+    if not d:
+        return None
+    try:
+        ds = d.get("dataset", d)
+        dim = ds["dimension"]
+        order = dim["id"]
+        sizes = dim["size"]
+        values = ds["value"]
+
+        def cats(name):
+            idx = dim[name]["category"]["index"]
+            return sorted(idx, key=lambda k: idx[k])
+        months = cats("Tid")
+        rf_cats = cats("RENTFIX")
+        stride = [1] * len(sizes)
+        for i in range(len(sizes) - 2, -1, -1):
+            stride[i] = stride[i + 1] * sizes[i + 1]
+        p_rf, p_t = order.index("RENTFIX"), order.index("Tid")
+        label_of = dict(keep)
+        series = {}
+        for rfi, rfc in enumerate(rf_cats):     # all other dims sit at index 0
+            row = []
+            for ti in range(len(months)):
+                flat = rfi * stride[p_rf] + ti * stride[p_t]
+                v = values[flat] if flat < len(values) else None
+                row.append(round(v, 2) if isinstance(v, (int, float)) else None)
+            series[label_of.get(rfc, rfc)] = row
+    except Exception as ex:
+        print(f"  mortgage: parse failed ({ex})", file=sys.stderr)
+        return None
+    latest = {}
+    for lab, row in series.items():
+        for mi in range(len(months) - 1, -1, -1):
+            if row[mi] is not None:
+                latest[lab] = {"month": months[mi], "rate": row[mi]}
+                break
+    print(f"  mortgage: {len(series)} fixation series, {len(months)} months "
+          f"{months[0]}–{months[-1]}; latest Alle="
+          f"{latest.get('Alle lån', {}).get('rate', '?')}%")
+    return {"source": "Danmarks Nationalbank · DNRNURI (api.statbank.dk)",
+            "unit": "Effektiv rente inkl. bidrag, % p.a. — nye realkreditlån",
+            "months": months, "series": series, "latest": latest,
+            "order": [lab for _, lab in keep]}
 
 
 # ---------------------------------------------------------------------------
@@ -979,8 +1047,11 @@ def main():
         with open(os.path.join(data_dir, "sold.json"), "w", encoding="utf-8") as f:
             json.dump(sold, f, ensure_ascii=False, separators=(",", ":"))
 
-    print("Discovering mortgage-rate tables (Nationalbanken)…")
-    fetch_mortgage()
+    print("Fetching realkreditrenter (Nationalbanken)…")
+    mortgage = fetch_mortgage()
+    if mortgage:
+        with open(os.path.join(data_dir, "mortgage.json"), "w", encoding="utf-8") as f:
+            json.dump(mortgage, f, ensure_ascii=False, separators=(",", ":"))
 
     meta = {
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -999,6 +1070,7 @@ def main():
                   for c, stops in LINES.items()],
         "transit": transit,   # metro + letbane overlay (None if the fetch failed)
         "hasSold": bool(sold),   # realised sold-price data available this build
+        "hasMortgage": bool(mortgage),   # realkreditrenter available this build
     }
     with open(os.path.join(data_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
