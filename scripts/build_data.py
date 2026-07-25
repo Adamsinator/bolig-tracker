@@ -7,10 +7,12 @@ and write two compact files consumed by the static site:
 
 No API key, no auth. Dependency-free (stdlib only) so it runs locally and in CI.
 """
+import contextlib
 import json
 import math
 import os
 import re
+import signal
 import sys
 import time
 import urllib.parse
@@ -575,16 +577,37 @@ OVERPASS_MIRRORS = ["https://overpass.kumi.systems/api/interpreter",
                     "https://overpass-api.de/api/interpreter"]
 TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
 
+@contextlib.contextmanager
+def hard_timeout(seconds):
+    """Wall-clock cap via SIGALRM. urllib's socket timeout is per-recv, so a
+    server that dribbles bytes slowly never trips it and can hang the build
+    forever; SIGALRM interrupts the read no matter how the bytes arrive. POSIX
+    + main thread only (both true in CI); elsewhere it's a harmless no-op."""
+    try:
+        old = signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(
+            TimeoutError(f"hard timeout after {seconds}s")))
+    except (ValueError, AttributeError):
+        yield            # not the main thread / not POSIX — skip the guard
+        return
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
 def _overpass(query):
     """Run one Overpass query against the mirrors; return parsed JSON or None.
-    Kept small so each concern (lines, stations) can fail independently. Socket
-    timeout is short so a *hanging* mirror fails over quickly instead of blocking
-    the whole build — this overlay is optional and must never stall the run."""
+    Kept small so each concern (lines, stations) can fail independently. Both a
+    socket timeout and a hard wall-clock cap apply so a hanging or slow-dribbling
+    mirror fails over quickly — this overlay is optional and must never stall the
+    run."""
     for url in OVERPASS_MIRRORS:
         try:
             req = urllib.request.Request(url, data=query.encode("utf-8"),
                                          headers={"User-Agent": "bolig-tracker/1.0"})
-            with urllib.request.urlopen(req, timeout=40) as r:
+            with hard_timeout(45), urllib.request.urlopen(req, timeout=40) as r:
                 return json.load(r)
         except Exception as ex:
             print(f"  transit fetch via {url} failed ({ex})", file=sys.stderr)
@@ -609,6 +632,7 @@ def fetch_transit():
                 mode = "letbane" if tags.get("station") == "light_rail" else "metro"
                 stations.append({"name": tags["name"], "mode": mode,
                                  "lat": round(el["lat"], 5), "lon": round(el["lon"], 5)})
+    print(f"  transit: {len(stations)} stations fetched")
 
     lines = []
     ldata = _overpass(
@@ -626,7 +650,7 @@ def fetch_transit():
 
     if not lines and not stations:
         return None
-    print(f"  transit: {len(lines)} line segments, {len(stations)} stations")
+    print(f"  transit: {len(lines)} line segments fetched")
     return {"lines": lines, "stations": stations}
 
 
@@ -650,19 +674,24 @@ def confirm_encumbrance(listings):
             cands.append((r["m2p"] / m, r))
     cands.sort(key=lambda x: x[0])
     cands = [r for _, r in cands[:MAX_DETAIL]]
-    found = 0
+    found, done = 0, 0
+    deadline = time.time() + 150       # overall budget for this optional step
     for r in cands:
+        if time.time() > deadline:
+            print(f"  detail-check budget reached at {done}/{len(cands)}")
+            break
         try:
             req = urllib.request.Request(r["url"], headers={"User-Agent": "Mozilla/5.0 bolig-tracker/1.0"})
-            with urllib.request.urlopen(req, timeout=12) as resp:
+            with hard_timeout(15), urllib.request.urlopen(req, timeout=12) as resp:
                 html = resp.read(500000).decode("utf-8", "ignore")
             if _ENCUMBRANCE_RE.search(html):
                 r["hf"] = True
                 found += 1
         except Exception:
             pass
+        done += 1
         time.sleep(0.15)
-    print(f"  detail-checked {len(cands)} cheap listings → +{found} hjemfald/tilbagekøb")
+    print(f"  detail-checked {done}/{len(cands)} cheap listings → +{found} hjemfald/tilbagekøb")
 
 
 def annotate_metro(listings, transit):
