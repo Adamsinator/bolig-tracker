@@ -764,6 +764,25 @@ def annotate_metro(listings, transit):
             r["nearRail"] = bool(r.get("near"))
 
 
+def merge_transit(new, prev):
+    """The metro/letbane network is static, so a flaky Overpass fetch must never
+    blank the overlay (or wipe mst, which breaks the metro premium/model). Keep
+    whichever source actually has data for each component (stations, lines)."""
+    new, prev = new or {}, prev or {}
+    stations = new.get("stations") or prev.get("stations") or []
+    lines = new.get("lines") or prev.get("lines") or []
+    if not stations and not lines:
+        return None
+    src = []
+    if not new.get("stations") and prev.get("stations"):
+        src.append(f"kept {len(stations)} cached stations")
+    if not new.get("lines") and prev.get("lines"):
+        src.append(f"kept {len(lines)} cached line segments")
+    if src:
+        print("  transit: " + "; ".join(src))
+    return {"lines": lines, "stations": stations}
+
+
 # ---------------------------------------------------------------------------
 # Realised sold prices from Boliga, which aggregates tinglysning (the land
 # registry) and carries BBR attributes like build year and size. This gives a
@@ -916,7 +935,15 @@ def main():
     os.makedirs(data_dir, exist_ok=True)
 
     print("Fetching metro / letbane overlay…")
-    transit = fetch_transit()
+    prev_transit = None
+    meta_path = os.path.join(data_dir, "meta.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                prev_transit = json.load(f).get("transit")
+        except Exception:
+            pass
+    transit = merge_transit(fetch_transit(), prev_transit)
     annotate_metro(listings, transit)
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
