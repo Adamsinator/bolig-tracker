@@ -50,7 +50,7 @@ const PRICES = [1e6, 1.5e6, 2e6, 2.5e6, 3e6, 4e6, 5e6, 7.5e6, 10e6, 15e6, 20e6, 
 /* ===================== load ===================== */
 async function boot() {
   try {
-    const [meta, listings, geo, index, history, bvc, sold, mortgage] = await Promise.all([
+    const [meta, listings, geo, index, history, bvc, sold] = await Promise.all([
       fetch('data/meta.json').then(r => r.json()),
       fetch('data/listings.json').then(r => r.json()),
       fetch('data/geo.json').then(r => r.json()).catch(() => ({})),
@@ -58,9 +58,8 @@ async function boot() {
       fetch('data/history.json').then(r => r.json()).catch(() => ({ series: [] })),
       fetch('data/bvc.json').then(r => r.json()).catch(() => null),
       fetch('data/sold.json').then(r => r.json()).catch(() => null),
-      fetch('data/mortgage.json').then(r => r.json()).catch(() => null),
     ]);
-    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold; S.mortgage = mortgage;
+    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold;
     meta.municipalities.forEach(m => S.munis.add(m.slug));
     S.favs = loadFavs();    // saved homes (device-local)
     decodeState();          // apply any filters carried in the URL
@@ -291,7 +290,9 @@ function setupGeo(which) {
 
 /* ===================== filtering ===================== */
 const NEW_DAYS = 14;   // "Ny på markedet" = on the market at most this many days
-const METRO_NEAR_M = 1000;   // within this many m of a metro/letbane stop = "near"
+const METRO_NEAR_M = 500;   // tight catchment: metro only serves dense central
+// kommuner where almost everything is within ~1 km of a stop, so 500 m is what
+// actually separates "near" from "far" and keeps the metro premium meaningful.
 const nearMetro = r => r.mst != null && r.mst <= METRO_NEAR_M;
 function filtered() {
   return S.all.filter(r => {
@@ -347,7 +348,6 @@ function render() {
   renderOutliers(f);
   renderPriceChanges(f);
   renderIndexChart();
-  renderMortgage();
   renderTrendChart();
   renderCompare();
   drawMap(f);
@@ -414,9 +414,10 @@ function renderSold(f) {
   for (const m of S.meta.municipalities) {
     const ask = median((askByM.get(m.slug) || []).filter(Boolean));
     const s = soldForMuni(m.slug);
-    if (ask && s && s.m2) rows.push({ label: names[m.slug] || m.slug, ask: Math.round(ask), sold: s.m2, n: s.n, gap: Math.round((ask / s.m2 - 1) * 100) });
+    // gap = realiseret ift. udbud → negative when asking sits above realised (the usual case)
+    if (ask && s && s.m2) rows.push({ label: names[m.slug] || m.slug, ask: Math.round(ask), sold: s.m2, n: s.n, gap: Math.round((s.m2 / ask - 1) * 100) });
   }
-  rows.sort((a, b) => b.gap - a.gap);
+  rows.sort((a, b) => a.gap - b.gap);   // most negative (asking most above realised) first
   if (!rows.length) { box.append(el('div', { class: 'loading' }, 'Ingen overlap mellem udbud og salg for det valgte filter.')); if (note) note.textContent = ''; return; }
 
   const askC = cssVar('--ink-2'), soldC = cssVar('--condo');
@@ -463,7 +464,7 @@ function renderSold(f) {
     const gaps = rows.map(r => r.gap).sort((a, b) => a - b);
     const medGap = gaps[gaps.length >> 1];
     const ttxt = S.type === 'condo' ? 'ejerlejligheder' : S.type === 'villa' ? 'villaer' : 'alle boligtyper';
-    let txt = `Positiv forskel = udbudspriser ligger over de faktisk tinglyste salgspriser. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %.`;
+    let txt = `Negativ forskel = de faktisk tinglyste salgspriser ligger under udbudspriserne. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %.`;
     const mix = S.sold && S.sold.saleMix && S.sold.saleMix.pct;
     if (mix) {
       const parts = [];
@@ -489,15 +490,21 @@ function renderSoldTrend(f) {
   const sel = [...S.munis];
   const scopeName = S.munis.size >= S.meta.municipalities.length ? 'hele korridoren'
     : S.munis.size === 1 ? (names[sel[0]] || sel[0]) : `${S.munis.size} kommuner`;
-  const seriesFor = t => quarters.map(q => {
-    const vals = [];
-    for (const slug of sel) { const st = S.sold.series[slug] && S.sold.series[slug][t]; if (st && st[q] != null) vals.push(st[q]); }
-    return vals.length ? Math.round(median(vals)) : null;
-  });
-  // same median-of-kommune-medians aggregation as the realised series, so the
-  // dashed asking reference is apples-to-apples with the line (not pooled-by-listing,
-  // which would over-weight København and sit misleadingly high)
+  // For the whole corridor use the pipeline's pooled series (volume-weighted, so
+  // condo kr/m² correctly sits above villa); for one kommune use its exact series;
+  // for a subset, median-of-kommune-medians. The dashed asking ref matches.
+  const whole = S.munis.size >= S.meta.municipalities.length;
+  const seriesFor = t => {
+    const sa = whole && S.sold.seriesAll && S.sold.seriesAll[t];
+    if (sa) return quarters.map(q => sa[q] != null ? sa[q] : null);
+    return quarters.map(q => {
+      const vals = [];
+      for (const slug of sel) { const st = S.sold.series[slug] && S.sold.series[slug][t]; if (st && st[q] != null) vals.push(st[q]); }
+      return vals.length ? Math.round(median(vals)) : null;
+    });
+  };
   const askMed = t => {
+    if (whole) { const m = median(S.all.filter(r => r.t === t).map(r => r.m2p).filter(Boolean)); return m || null; }
     const per = [];
     for (const slug of sel) { const m = median(S.all.filter(r => r.t === t && r.muni === slug).map(r => r.m2p).filter(Boolean)); if (m) per.push(m); }
     return per.length ? median(per) : null;
@@ -533,39 +540,6 @@ function renderSoldDecade() {
   if (note) note.textContent = 'Median realiseret kr/m² efter opførelsesårti (BBR), hele korridoren, seneste 12 mdr. Kilde: Boliga/tinglysning + BBR.';
 }
 
-// Realkreditrenter — effektiv rente på nyudstedte lån efter rentebinding
-// (Nationalbanken via statbank). Latest-rate tiles + a rate-over-time chart.
-// (MONTHS_DA is declared once further down and shared with the price-change list.)
-const fmtYM = ym => { const [y, m] = String(ym).split('M'); return (MONTHS_DA[+m - 1] || '') + ' ' + y; };
-const MORTGAGE_COLORS = ['#e6212a', '#e08a00', '#12a06f', '#1c5cb0', '#7a5cff', '#00a3c7', '#555'];
-function renderMortgage() {
-  const card = $('#mortgageCard'); if (!card) return;
-  const mo = S.mortgage;
-  if (!mo || !mo.months || !mo.months.length) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  const order = (mo.order || Object.keys(mo.series)).filter(l => mo.series[l]);
-  const tiles = $('#mortgageTiles'); tiles.innerHTML = '';
-  order.forEach(lab => {
-    const l = mo.latest[lab]; if (!l) return;
-    tiles.append(el('div', { class: 'kstat' },
-      el('div', { class: 'kstat-v' }, l.rate.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %'),
-      el('div', { class: 'kstat-l' }, lab)));
-  });
-  // rate-over-time — last ~12 years, a readable subset of fixations
-  const n = mo.months.length, start = Math.max(0, n - 144);
-  const xs = mo.months.slice(start), xlab = xs.map(fmtYM);
-  const prefer = ['Variabel (≤3 mdr.)', '1–5 år', 'Fast (>10 år)', 'Alle lån'];
-  const labs = order.filter(l => prefer.includes(l));
-  const series = (labs.length ? labs : order).map((lab, i) => ({ name: lab, color: MORTGAGE_COLORS[i % MORTGAGE_COLORS.length], values: mo.series[lab].slice(start) }));
-  const N = xs.length, step = Math.max(1, Math.ceil((N - 1) / 6)), idxs = [];
-  for (let i = 0; i < N; i += step) idxs.push(i);
-  if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1);
-  lineChart($('#mortgageChart'), xlab, series, { legend: true, yfmt: v => v.toFixed(1) + '%', tfmt: v => v.toFixed(2) + ' %', xticks: idxs.map(i => [i, xlab[i]]) });
-  const src = $('#mortgageSrc');
-  if (src) src.textContent = mo.latest['Alle lån'] ? '· seneste ' + fmtYM(mo.latest['Alle lån'].month) : '';
-  const note = $('#mortgageNote');
-  if (note) note.textContent = `${mo.unit}. Renten på nyudstedte realkreditlån efter oprindelig rentebinding. Kilde: ${mo.source}.`;
-}
 // rows: [{label, value, n?, color?}].  opt: yfmt (y-axis + on-column label),
 // fmt (full value for tooltip), vlabel, tip(r) (custom tooltip), angle (x-label
 // rotation; 0 = horizontal), W, H, padB, headroom, topLabels.
@@ -628,7 +602,7 @@ function renderMuniStats() {
   const name = (S.meta.municipalities.find(m => m.slug === muniSel) || {}).name || muniSel;
   const s = kmStats(muniSel);
   const sv = soldForMuni(muniSel);
-  const soldGap = (sv && s.medM2) ? Math.round((s.medM2 / sv.m2 - 1) * 100) : null;
+  const soldGap = (sv && s.medM2) ? Math.round((sv.m2 / s.medM2 - 1) * 100) : null;   // realiseret ift. udbud (negativ når udbud er højere)
   const stat = (label, val) => el('div', { class: 'kstat' }, el('div', { class: 'kstat-v' }, val), el('div', { class: 'kstat-l' }, label));
   const wrap = el('div', { class: 'kstats' },
     stat('Antal til salg', num(s.n)),
@@ -807,7 +781,7 @@ function renderScatter(f) {
     + (stats.length > 1
       ? 'Den samlede sky kan se flad ud, selvom hver boligtype for sig stiger: store boliger er oftere villaer, som har lavere m²-pris end lejligheder (sammensætningseffekt). '
       : '')
-    + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} ekstreme boliger vises ikke (uden for skalaen).` : '')));
+    + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} boliger vises ikke: dem over ${Math.round(xd1)} m² eller med en m²-pris i de yderste ~2 % (holdt uden for skalaen, så skyen ikke klumper mod akserne). De tælles stadig med i medianlinjen.` : '')));
 }
 
 /* ============ outliers: robust z-score of kr/m² within kommune + type ============ */
@@ -1129,14 +1103,11 @@ function renderCompare() {
   const t = el('table', { class: 'cmp-table' });
   t.append(el('thead', {}, el('tr', {}, el('th', {}, ''), el('th', {}, names[S.cmpA] || S.cmpA), el('th', {}, names[S.cmpB] || S.cmpB))));
   const tb = el('tbody');
-  rows.forEach(([label, a, b, fmt, dir]) => {
-    // dir<0 → lower value is the "cheaper/faster" one; highlight it green
-    let aCls = '', bCls = '';
-    if (dir < 0 && a != null && b != null && a !== b) { (a < b ? (aCls = 'good') : (bCls = 'good')); }
+  rows.forEach(([label, a, b, fmt]) => {
     tb.append(el('tr', {},
       el('td', { class: 'cmp-l' }, label),
-      el('td', { class: aCls }, a == null ? '–' : fmt(a)),
-      el('td', { class: bCls }, b == null ? '–' : fmt(b))));
+      el('td', {}, a == null ? '–' : fmt(a)),
+      el('td', {}, b == null ? '–' : fmt(b))));
   });
   t.append(tb); box.innerHTML = ''; box.append(t);
 }
@@ -1619,15 +1590,18 @@ function card(r) {
     // fair-value model: how the asking kr/m² compares to what the model predicts
     const fvr = fairValue().resid.get(r.id), fvp = fairValue().pred.get(r.id);
     if (fvr != null && Math.abs(fvr) >= 6) {
-      const under = fvr < 0;
-      body.append(el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)}` },
-        `${under ? '↓' : '↑'} ${Math.abs(fvr)} % ${under ? 'under' : 'over'} vurdering`));
+      const under = fvr < 0, mag = Math.abs(fvr);
+      // cap the shown magnitude so a genuine oddball (andel, encumbered plot…)
+      // doesn't scream "50 %+" — the exact figure stays in the tooltip
+      const shown = mag > 50 ? '50+' : mag;
+      body.append(el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)} (${under ? '−' : '+'}${mag} %)` },
+        `${under ? '↓' : '↑'} ${shown} % ${under ? 'under' : 'over'} vurdering`));
     }
     // local realised benchmark — nearby tinglyste salg (same type, last 12 mo)
     if (r.cmpM2 && r.m2p) {
       const diff = Math.round((r.m2p / r.cmpM2 - 1) * 100);
       body.append(el('div', { class: 'compline', title: `${r.cmpN} tinglyste salg inden for ${r.cmpR} m` },
-        `Realiseret i området: ${m2(r.cmpM2)} · udbudt ${diff >= 0 ? '+' : ''}${diff} %`));
+        `Realiseret i området: ${m2(r.cmpM2)} · udbudt ${Math.abs(diff)} % ${diff >= 0 ? 'over' : 'under'}`));
     }
   }
   // if you saved this home and its asking price has changed since, flag it

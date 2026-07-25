@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bolig Tracker — boligmarkedet langs S-toget</title>
-<meta name="description" content="Bolig Tracker — overblik over boligmarkedet fra København til Hillerød, ejerlejligheder og villaer med fokus på nærhed til S-toget. Data fra boligsiden.dk og Danmarks Statistik.">
+<title>Bolig Tracker — boligmarkedet i hovedstadsområdet</title>
+<meta name="description" content="Bolig Tracker — overblik over boligmarkedet fra København til Hillerød: udbud, realiserede salgspriser, kvadratmeterpriser, kort og realkreditrenter. Data fra boligsiden.dk, tinglysning og Danmarks Statistik.">
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/svg+xml" href="logo.svg?v=14">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=14">
@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="styles.css?v=33">
+<link rel="stylesheet" href="styles.css?v=34">
 </head>
 <body>
 <div id="app">
@@ -26,7 +26,7 @@
       <img class="brand-mark" src="logo.svg?v=14" alt="Bolig Tracker" width="34" height="34">
       <div>
         <h1>Bolig Tracker</h1>
-        <p class="tagline">Boligmarkedet fra København til Hillerød — langs S-toget</p>
+        <p class="tagline">Boligmarkedet fra København til Hillerød</p>
       </div>
     </div>
     <div class="topbar-right">
@@ -112,7 +112,7 @@
   <section class="grid">
     <div class="card map-card">
       <div class="card-head">
-        <h2>Kort — boliger &amp; S-togsnettet</h2>
+        <h2>Kort — boliger, S-tog &amp; metro</h2>
         <div class="map-controls">
           <label>Farvelæg efter
             <select id="colorBy">
@@ -298,7 +298,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=33"></script>
+<script src="app.js?v=34"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 </body>
 </html>

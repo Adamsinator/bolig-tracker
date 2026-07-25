@@ -337,6 +337,16 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .calc-controls input, .calc-controls select { font:inherit; padding:7px 10px; border:1px solid var(--border);
   border-radius:9px; background:var(--surface-2); color:var(--ink); min-width:150px; }
 .calc-controls .unit { font-weight:600; color:var(--muted); }
+.calc-controls .sub { font-weight:500; color:var(--muted); font-size:11px; }
+.aff-head { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
+.aff-head .kstat-v { font-size:18px; }
+@media (max-width:560px){ .aff-head { grid-template-columns:1fr; } }
+/* on narrow screens drop the least-important 'Opdateret' column so the rate
+   table fits without sideways scrolling (calc table keeps all columns) */
+@media (max-width:560px){
+  #rateTable .rate-table th:last-child, #rateTable .rate-table td:last-child { display:none; }
+  .rate-table th, .rate-table td { padding:8px 8px; }
+}
 
 /* compare-two-kommuner table */
 .cmp-table { width:100%; max-width:640px; margin:0 auto; border-collapse:collapse; font-size:13.5px; }
@@ -397,8 +407,10 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
   .kpi:nth-child(5){ grid-column:1 / -1; }
   .map-body { flex-direction:column; }
   .map-side { flex-basis:auto; }
-  .map-facts { flex-direction:row; flex-wrap:wrap; }
-  .map-facts .mf { flex:1 1 120px; }
+  /* even 2-up grid so a lone box doesn't stretch full-width and paired boxes
+     match height (was flex-grow, which made Metropræmie span the whole row) */
+  .map-facts { display:grid; grid-template-columns:repeat(2,1fr); gap:9px; }
+  .map-facts .mf { display:flex; flex-direction:column; justify-content:center; }
   .map-legend { flex-direction:row; flex-wrap:wrap; gap:12px; align-items:center; }
   /* the region is roughly square, so a portrait 76vh map left big empty margins —
      size the map closer to the region's aspect on narrow screens */

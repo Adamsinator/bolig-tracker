@@ -48,7 +48,10 @@ MUNI_NAME = {s: v[0] for s, v in MUNICIPALITIES.items()}
 TYPES = ["condo", "villa"]  # ejerlejlighed, villa
 
 # "Near the S-train" heuristic (metres, straight-line to nearest S-train station).
-STRAIN_NEAR_M = 1200
+# 1 km ≈ a 12-min walk — a realistic catchment. (Metro uses a tighter 500 m on the
+# client, since metro only serves dense central kommuner where almost everything is
+# within ~1 km of a stop.)
+STRAIN_NEAR_M = 1000
 
 
 def fetch(muni, addr_type):
@@ -907,6 +910,7 @@ def fetch_sold(listings):
     by_decade = {"condo": {}, "villa": {}}   # BBR build-decade -> realised kr/m² (recent window)
     saletypes = {}                           # market composition over the recent window
     points = []                              # (lat, lon, m2p, type) for per-listing local comps
+    all_q = {"condo": {}, "villa": {}}       # corridor-pooled kr/m² per quarter (all sales, per type)
     logged_fields = False
     total = 0
 
@@ -949,6 +953,7 @@ def fetch_sold(listings):
                 if m2 and 5000 <= m2 <= 200000:
                     if q:
                         by_q.setdefault(q, []).append(m2)
+                        all_q[t].setdefault(q, []).append(m2)   # corridor pool
                     if recent:
                         rm.append(m2)
                         if price and price > 0:
@@ -1017,12 +1022,19 @@ def fetch_sold(listings):
     sale_mix = {"counts": saletypes,
                 "pct": {k: round(v / tot_st * 100, 1) for k, v in saletypes.items()}} if tot_st else None
     quarters = sorted({q for per in series.values() for s in per.values() for q in s})
+    # corridor-pooled quarterly median (all sales, per type) — the honest
+    # corridor trend. Median-of-kommune-medians would over-weight the many cheap
+    # suburban condos and wrongly put villa kr/m² above condo.
+    series_all = {t: {q: round(median(v)) for q, v in qs.items() if len(v) >= 15}
+                  for t, qs in all_q.items()}
+    series_all = {t: qm for t, qm in series_all.items() if qm}
     print(f"  sold: {total} rows scanned, {len(by_muni)} kommuner; "
           f"decades condo={len(decades.get('condo', {}))} villa={len(decades.get('villa', {}))}; "
           f"sale-mix {saletypes}")
     return {"generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "windowMonths": SOLD_MONTHS,
             "recentDays": SOLD_RECENT_DAYS, "byMuni": by_muni, "askingVsSold": gap,
-            "quarters": quarters, "series": series, "byDecade": decades, "saleMix": sale_mix,
+            "quarters": quarters, "series": series, "seriesAll": series_all,
+            "byDecade": decades, "saleMix": sale_mix,
             "points": points}   # popped before writing sold.json — used for per-listing comps
 
 

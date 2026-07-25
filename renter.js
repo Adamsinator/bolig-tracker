@@ -60,7 +60,65 @@ function renderAll(mo) {
   renderTable(mo, order);
   renderCurve(mo);
   renderHist(mo, order);
+  renderAfford(mo, order);
   renderCalc(mo, order);
+}
+
+// Danish home-financing rules for the affordability calculator
+const MIN_DOWN = 0.05;      // min. 5 % udbetaling
+const MAX_LTV = 0.80;       // realkredit maks. 80 % af købsprisen
+const DEBT_MULT = 5;        // samlet gæld højst ~5× årlig husstandsindkomst
+const BANK_MARGIN = 2.5;    // banklån koster typisk ~2–3 pct.point mere end realkredit
+
+function renderAfford(mo, order) {
+  const fix = $('#affFix');
+  if (fix && !fix.options.length) {
+    order.filter(l => l !== 'Alle lån').forEach(l => {
+      const o = document.createElement('option'); o.value = l; o.textContent = l;
+      if (l === 'Fast (>10 år)') o.selected = true; fix.append(o);
+    });
+  }
+  const build = () => {
+    const income = Math.max(0, +$('#affIncome').value || 0);
+    const savings = Math.max(0, +$('#affSavings').value || 0);
+    const fixLab = $('#affFix').value || 'Fast (>10 år)';
+    const yrs = +$('#affTerm').value || 30;
+    const rk = (mo.latest[fixLab] || mo.latest['Fast (>10 år)'] || { rate: 5 }).rate;
+    const bankRate = rk + BANK_MARGIN;
+    const maxByDown = savings > 0 ? savings / MIN_DOWN : 0;   // udbetaling ≥ 5 % af prisen
+    const maxByIncome = DEBT_MULT * income + savings;         // samlet gæld ≤ 5× indkomst
+    const P = Math.max(0, Math.min(maxByDown, maxByIncome));
+    const bind = maxByDown <= maxByIncome ? 'udbetaling' : 'indkomst';
+    const down = Math.min(savings, P);
+    const loan = Math.max(0, P - down);
+    const rkLoan = Math.min(MAX_LTV * P, loan);
+    const bankLoan = Math.max(0, loan - rkLoan);
+    const ann = (amt, rate) => { const r = rate / 100 / 12, n = yrs * 12; return r > 0 ? amt * r / (1 - Math.pow(1 + r, -n)) : (n ? amt / n : 0); };
+    const mRk = ann(rkLoan, rk), mBank = ann(bankLoan, bankRate), mTot = mRk + mBank;
+
+    const tile = (v, l) => el('div', { class: 'kstat' }, el('div', { class: 'kstat-v' }, v), el('div', { class: 'kstat-l' }, l));
+    const head = $('#affHead'); head.innerHTML = '';
+    head.append(
+      tile(kr(P), 'Maks. købspris'),
+      tile(kr(down) + (P ? ' · ' + Math.round(down / P * 100) + ' %' : ''), 'Udbetaling'),
+      tile(kr(mTot) + ' /md.', 'Samlet ydelse'));
+
+    const wrap = $('#affTable'); wrap.innerHTML = '';
+    const t = el('table', { class: 'rate-table' });
+    t.append(el('thead', {}, el('tr', {}, el('th', {}, 'Finansiering'), el('th', {}, 'Beløb'), el('th', {}, 'Rente'), el('th', {}, 'Md. ydelse'))));
+    const tb = el('tbody');
+    tb.append(el('tr', {}, el('td', {}, 'Realkreditlån (op til 80 %)'), el('td', { class: 'num' }, kr(rkLoan)), el('td', { class: 'num' }, pct(rk)), el('td', { class: 'num strong' }, kr(mRk))));
+    if (bankLoan > 0) tb.append(el('tr', {}, el('td', {}, 'Banklån (rest op til 95 %)'), el('td', { class: 'num' }, kr(bankLoan)), el('td', { class: 'num' }, pct(bankRate)), el('td', { class: 'num strong' }, kr(mBank))));
+    tb.append(el('tr', {}, el('td', {}, 'Udbetaling'), el('td', { class: 'num' }, kr(down)), el('td', { class: 'muted' }, '–'), el('td', { class: 'muted' }, '–')));
+    tb.append(el('tr', {}, el('td', { class: 'strong' }, 'Købspris i alt'), el('td', { class: 'num strong' }, kr(P)), el('td', { class: 'muted' }, ''), el('td', { class: 'num strong' }, kr(mTot))));
+    t.append(tb); wrap.append(t);
+
+    const note = $('#affNote');
+    if (note) note.textContent = `Bindende grænse: ${bind === 'udbetaling' ? 'din udbetaling (min. 5 % af prisen)' : 'din indkomst (samlet gæld højst ' + DEBT_MULT + '× årlig husstandsindkomst)'}. Beregnet efter: min. 5 % udbetaling, realkredit maks. 80 % af prisen, resten som banklån (~${BANK_MARGIN.toLocaleString('da-DK')} pct.point dyrere end realkreditrenten). Vejledende — banken laver altid en konkret kreditvurdering med stresstest og rådighedsbeløb.`;
+  };
+  ['#affIncome', '#affSavings'].forEach(s => { const e = $(s); if (e) e.oninput = build; });
+  ['#affFix', '#affTerm'].forEach(s => { const e = $(s); if (e) e.onchange = build; });
+  build();
 }
 
 // headline tiles: the four most-quoted buckets
