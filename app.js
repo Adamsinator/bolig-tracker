@@ -1219,8 +1219,51 @@ function fundScore(r) {
   if (z == null) return -Infinity;
   return -z + (r.chg < 0 ? 0.6 : 0) + (r.near ? 0.3 : 0);
 }
+
+/* ===== hedonic "fair value" model — kr/m² predicted from a home's features
+   (size, rooms, year, floor, basement, lot, energy, distance-to-S-tog, type,
+   kommune) via ridge regression; residual = asking vs. model. Built once. ===== */
+let _fv = null;
+function fairValue() {
+  if (_fv) return _fv;
+  const rows = S.all.filter(r => r.m2p > 0 && r.a > 0);
+  const out = { pred: new Map(), resid: new Map(), r2: null };
+  if (rows.length < 200) { _fv = out; return out; }
+  const munis = [...new Set(rows.map(r => r.muni))].sort();
+  const ER = { a: 7, b: 6, c: 5, d: 4, e: 3, f: 2, g: 1 };
+  const erank = e => e ? (ER[String(e)[0].toLowerCase()] || 4) : 4;
+  const feat = r => {
+    const f = [1, Math.log(r.a), (r.r || 0), (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
+      (r.bsm > 0 ? 1 : 0), (Math.log((r.lot || 0) + 1) / 10), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
+      (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
+    for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
+    return f;
+  };
+  const p = feat(rows[0]).length, n = rows.length;
+  const y = rows.map(r => Math.log(r.m2p));
+  const XtX = Array.from({ length: p }, () => new Float64Array(p)), Xty = new Float64Array(p);
+  rows.forEach((r, i) => { const xi = feat(r), yi = y[i]; for (let a = 0; a < p; a++) { const xa = xi[a]; if (!xa) continue; Xty[a] += xa * yi; const row = XtX[a]; for (let b = 0; b < p; b++) row[b] += xa * xi[b]; } });
+  for (let a = 1; a < p; a++) XtX[a][a] += 1;   // ridge (leave intercept)
+  const A = XtX.map((row, i) => { const rr = Array.from(row); rr.push(Xty[i]); return rr; });
+  for (let c = 0; c < p; c++) {
+    let piv = c; for (let r = c + 1; r < p; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    [A[c], A[piv]] = [A[piv], A[c]];
+    const pv = A[c][c] || 1e-9; for (let j = c; j <= p; j++) A[c][j] /= pv;
+    for (let r = 0; r < p; r++) if (r !== c && A[r][c]) { const f = A[r][c]; for (let j = c; j <= p; j++) A[r][j] -= f * A[c][j]; }
+  }
+  const beta = A.map(r => r[p]);
+  const ybar = y.reduce((a, b) => a + b, 0) / n; let ssr = 0, sst = 0;
+  rows.forEach((r, i) => {
+    const xi = feat(r); let yh = 0; for (let k = 0; k < p; k++) yh += beta[k] * xi[k];
+    out.pred.set(r.id, Math.round(Math.exp(yh)));
+    out.resid.set(r.id, Math.round((r.m2p / Math.exp(yh) - 1) * 100));
+    ssr += (y[i] - yh) ** 2; sst += (y[i] - ybar) ** 2;
+  });
+  out.r2 = sst ? 1 - ssr / sst : null;
+  _fv = out; return out;
+}
 function sortRows(f) {
-  const cmp = { d: (a, b) => a.d - b.d, m2p: (a, b) => a.m2p - b.m2p, m2p_desc: (a, b) => b.m2p - a.m2p, p: (a, b) => a.p - b.p, p_desc: (a, b) => b.p - a.p, sst: (a, b) => a.sst - b.sst, chg: (a, b) => (a.chg || 0) - (b.chg || 0), fund: (a, b) => fundScore(b) - fundScore(a) }[S.sort];
+  const cmp = { d: (a, b) => a.d - b.d, m2p: (a, b) => a.m2p - b.m2p, m2p_desc: (a, b) => b.m2p - a.m2p, p: (a, b) => a.p - b.p, p_desc: (a, b) => b.p - a.p, sst: (a, b) => a.sst - b.sst, chg: (a, b) => (a.chg || 0) - (b.chg || 0), fund: (a, b) => fundScore(b) - fundScore(a), value: (a, b) => (fairValue().resid.get(a.id) ?? 1e9) - (fairValue().resid.get(b.id) ?? 1e9) }[S.sort];
   return [...f].sort(cmp);
 }
 // Per-listing change log (data/tracker.json) — loaded lazily after first paint
@@ -1293,6 +1336,14 @@ function card(r) {
     meta.append(el('span', { class: 'commute-dist' }, parts.join(' · ')));
   }
   body.append(meta);
+  // fair-value model: how the asking kr/m² compares to what the model predicts
+  const fvr = fairValue().resid.get(r.id), fvp = fairValue().pred.get(r.id);
+  if (fvr != null && Math.abs(fvr) >= 6) {
+    const under = fvr < 0;
+    const vb = el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)}` },
+      `${under ? '↓' : '↑'} ${Math.abs(fvr)} % ${under ? 'under' : 'over'} vurdering`);
+    body.append(vb);
+  }
   // if you saved this home and its asking price has changed since, flag it
   const fv = S.favs[String(r.id)];
   if (fv && fv.p && r.p && fv.p !== r.p) {

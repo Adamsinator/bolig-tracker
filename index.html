@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
 <div id="app">
@@ -255,6 +255,7 @@
           <option value="p_desc">Pris (høj→lav)</option>
           <option value="sst">Nærmest S-tog</option>
           <option value="chg">Størst prisnedsættelse</option>
+          <option value="value">Under vurdering (model-tilbud)</option>
           <option value="fund">Mulige fund (billigst for området)</option>
         </select>
       </label>
@@ -276,7 +277,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 </body>
 </html>
