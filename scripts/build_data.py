@@ -578,8 +578,8 @@ TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhage
 def fetch_transit():
     s, w, n, e = TRANSIT_BBOX
     q = (f'[out:json][timeout:90];'
-         f'(relation["route"="subway"]({s},{w},{n},{e});'
-         f'relation["route"="light_rail"]({s},{w},{n},{e}););out tags geom;'
+         f'(way["railway"="subway"]({s},{w},{n},{e});'
+         f'way["railway"="light_rail"]({s},{w},{n},{e}););out geom;'
          f'(node["station"="subway"]({s},{w},{n},{e});'
          f'node["station"="light_rail"]({s},{w},{n},{e}););out body;')
     data = None
@@ -597,14 +597,14 @@ def fetch_transit():
     lines, stations, seen = [], [], set()
     for el in data.get("elements", []):
         tags = el.get("tags") or {}
-        if el.get("type") == "relation" and tags.get("route") in ("subway", "light_rail"):
-            mode = "metro" if tags["route"] == "subway" else "letbane"
-            segs = [[[round(p["lat"], 5), round(p["lon"], 5)] for p in m["geometry"]]
-                    for m in el.get("members", []) if m.get("geometry")]
-            if segs:
-                lines.append({"mode": mode, "ref": tags.get("ref") or tags.get("name") or "",
-                              "colour": tags.get("colour") or tags.get("color"), "segs": segs})
-        elif el.get("type") == "node" and tags.get("name"):
+        et = el.get("type")
+        if et == "way" and tags.get("railway") in ("subway", "light_rail") and el.get("geometry"):
+            mode = "metro" if tags["railway"] == "subway" else "letbane"
+            seg = [[round(p["lat"], 5), round(p["lon"], 5)] for p in el["geometry"]]
+            if len(seg) > 1:
+                lines.append({"mode": mode, "ref": tags.get("ref") or "",
+                              "colour": tags.get("colour") or tags.get("color"), "segs": [seg]})
+        elif et == "node" and tags.get("name"):
             key = (round(el["lat"], 4), round(el["lon"], 4))
             if key not in seen:
                 seen.add(key)
@@ -613,8 +613,43 @@ def fetch_transit():
                                  "lat": round(el["lat"], 5), "lon": round(el["lon"], 5)})
     if not lines and not stations:
         return None
-    print(f"  transit: {len(lines)} route relations, {len(stations)} stations")
+    print(f"  transit: {len(lines)} line segments, {len(stations)} stations")
     return {"lines": lines, "stations": stations}
+
+
+# boligsiden's *search* payload only mentions hjemfald/tilbagekøb for a few
+# listings, so confirm the encumbrance on the ones that look suspiciously cheap
+# for their area (that's where these clauses actually turn up) by scanning the
+# public listing page. Bounded so we stay polite.
+CHEAP_FRAC = 0.60      # < 60 % of the peer-group median kr/m² = worth a look
+MAX_DETAIL = 300       # cap on detail fetches per build
+
+def confirm_encumbrance(listings):
+    groups = {}
+    for r in listings:
+        if r.get("m2p"):
+            groups.setdefault((r["muni"], r["t"]), []).append(r["m2p"])
+    med = {k: median(v) for k, v in groups.items() if v}
+    cands = []
+    for r in listings:
+        m = med.get((r["muni"], r["t"]))
+        if m and r.get("m2p") and r["m2p"] < CHEAP_FRAC * m and not r.get("hf") and r.get("url"):
+            cands.append((r["m2p"] / m, r))
+    cands.sort(key=lambda x: x[0])
+    cands = [r for _, r in cands[:MAX_DETAIL]]
+    found = 0
+    for r in cands:
+        try:
+            req = urllib.request.Request(r["url"], headers={"User-Agent": "Mozilla/5.0 bolig-tracker/1.0"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                html = resp.read(500000).decode("utf-8", "ignore")
+            if _ENCUMBRANCE_RE.search(html):
+                r["hf"] = True
+                found += 1
+        except Exception:
+            pass
+        time.sleep(0.15)
+    print(f"  detail-checked {len(cands)} cheap listings → +{found} hjemfald/tilbagekøb")
 
 
 def annotate_metro(listings, transit):
@@ -653,6 +688,9 @@ def main():
     print("Fetching metro / letbane overlay…")
     transit = fetch_transit()
     annotate_metro(listings, transit)
+
+    print("Confirming hjemfald/tilbagekøb on cheap outliers…")
+    confirm_encumbrance(listings)
 
     with open(os.path.join(data_dir, "listings.json"), "w", encoding="utf-8") as f:
         json.dump(listings, f, ensure_ascii=False, separators=(",", ":"))
