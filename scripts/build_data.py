@@ -731,17 +731,17 @@ def _boliga_sold_page(code, ptype, date_min, page):
         "municipality": code, "propertyType": ptype, "salesDateMin": date_min,
         "pageSize": 500, "page": page, "sort": "date-d",
     })
-    for attempt in range(3):
+    for attempt in range(5):          # ~2+4+6+8s of backoff — rides out rate limits
         try:
             req = urllib.request.Request(f"{BOLIGA_SOLD}?{qs}",
                 headers={"Accept": "application/json", "User-Agent": "bolig-tracker/1.0"})
             with hard_timeout(40), urllib.request.urlopen(req, timeout=35) as r:
                 return json.load(r)
         except Exception as ex:
-            if attempt == 2:
+            if attempt == 4:
                 print(f"  sold fetch {code}/{ptype} p{page} failed ({ex})", file=sys.stderr)
                 return None
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(2 * (attempt + 1))
     return None
 
 def _quarter(iso):
@@ -758,46 +758,59 @@ def fetch_sold(listings):
     by_muni, series = {}, {}
     logged_fields = False
     total = 0
+    def scan_group(code, ptype):
+        """Page one kommune×type; return (recent_prices, recent_m2, by_q, rows, failed)."""
+        nonlocal logged_fields
+        recent_prices, recent_m2, by_q, rows_seen, failed = [], [], {}, 0, False
+        for page in range(1, MAX_SOLD_PAGES + 1):
+            data = _boliga_sold_page(code, ptype, date_min, page)
+            if not data:
+                failed = (page == 1)      # page-1 miss = we got nothing at all
+                break
+            results = data.get("results") or data.get("Results") or []
+            if not logged_fields and results:
+                print(f"  boliga sold fields: {sorted(results[0].keys())}")
+                logged_fields = True
+            if not results:
+                break
+            stop = False
+            for s in results:
+                sd = str(s.get("soldDate") or s.get("SoldDate") or "")
+                try:
+                    d = datetime.fromisoformat(sd[:10]).replace(tzinfo=timezone.utc)
+                except Exception:
+                    d = None
+                stype = str(s.get("saleType") or s.get("SaleType") or "").lower()
+                if any(k in stype for k in ("fam", "auktion", "auction")):
+                    continue              # arm's-length sales only
+                m2 = s.get("sqmPrice") or s.get("SqmPrice")
+                price = s.get("price") or s.get("Price")
+                q = _quarter(sd)
+                if m2 and m2 > 0:
+                    if q:
+                        by_q.setdefault(q, []).append(m2)
+                    if d and d >= recent_cut:
+                        recent_m2.append(m2)
+                        if price and price > 0:
+                            recent_prices.append(price)
+                if d and d < cutoff:
+                    stop = True
+            rows_seen += len(results)
+            meta_total = (data.get("meta") or {}).get("totalCount")
+            if stop or (meta_total and page * 500 >= meta_total):
+                break
+            time.sleep(0.25)
+        return recent_prices, recent_m2, by_q, rows_seen, failed
+
     for slug, (name, code) in MUNICIPALITIES.items():
         for t, ptype in BOLIGA_PTYPE.items():
-            recent_prices, recent_m2, by_q = [], [], {}
-            for page in range(1, MAX_SOLD_PAGES + 1):
-                data = _boliga_sold_page(code, ptype, date_min, page)
-                if not data:
-                    break
-                results = data.get("results") or data.get("Results") or []
-                if not logged_fields and results:
-                    print(f"  boliga sold fields: {sorted(results[0].keys())}")
-                    logged_fields = True
-                if not results:
-                    break
-                stop = False
-                for s in results:
-                    sd = str(s.get("soldDate") or s.get("SoldDate") or "")
-                    try:
-                        d = datetime.fromisoformat(sd[:10]).replace(tzinfo=timezone.utc)
-                    except Exception:
-                        d = None
-                    stype = str(s.get("saleType") or s.get("SaleType") or "").lower()
-                    if any(k in stype for k in ("fam", "auktion", "auction")):
-                        continue          # arm's-length sales only
-                    m2 = s.get("sqmPrice") or s.get("SqmPrice")
-                    price = s.get("price") or s.get("Price")
-                    q = _quarter(sd)
-                    if m2 and m2 > 0:
-                        if q:
-                            by_q.setdefault(q, []).append(m2)
-                        if d and d >= recent_cut:
-                            recent_m2.append(m2)
-                            if price and price > 0:
-                                recent_prices.append(price)
-                    if d and d < cutoff:
-                        stop = True
-                total += len(results)
-                meta_total = (data.get("meta") or {}).get("totalCount")
-                if stop or (meta_total and page * 500 >= meta_total):
-                    break
-                time.sleep(0.25)
+            recent_prices, recent_m2, by_q, rows_seen, failed = scan_group(code, ptype)
+            total += rows_seen
+            if failed:                    # got nothing at all — one more try after a pause
+                print(f"  sold {name}/{t}: page-1 fetch failed, retrying once…", file=sys.stderr)
+                time.sleep(4)
+                recent_prices, recent_m2, by_q, rows_seen, failed = scan_group(code, ptype)
+                total += rows_seen
             if recent_m2:
                 by_muni.setdefault(slug, {})[t] = {
                     "n": len(recent_m2),
@@ -806,7 +819,8 @@ def fetch_sold(listings):
                 }
             if by_q:
                 series.setdefault(slug, {})[t] = {q: round(median(v)) for q, v in by_q.items()}
-            print(f"  sold {name:16} {t:6} {len(recent_m2)} recent sales")
+            flag = " (FETCH FAILED)" if failed else (" (no sales in window)" if not recent_m2 else "")
+            print(f"  sold {name:16} {t:6} {len(recent_m2)} recent sales{flag}")
     if not by_muni:
         return None
     # asking-vs-sold gap: current median asking kr/m² vs recent median realised kr/m²
