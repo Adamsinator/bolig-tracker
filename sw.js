@@ -1,10 +1,10 @@
 /* Bolig Tracker service worker — makes the installed app load instantly and
    work offline. Shell is cache-first (versioned); data JSON is network-first
    with a cache fallback so you always get fresh listings when online. */
-const CACHE = 'bolig-tracker-v32';
+const CACHE = 'bolig-tracker-v33';
 const SHELL = [
-  './', './index.html', './styles.css?v=32', './app.js?v=32',
-  './renter.html', './renter.js?v=32',
+  './', './index.html', './styles.css?v=33', './app.js?v=33',
+  './renter.html', './renter.js?v=33',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
   './logo.svg?v=14', './icon-192.png?v=14', './apple-touch-icon.png?v=14',
   './manifest.webmanifest?v=14',

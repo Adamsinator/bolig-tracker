@@ -26,6 +26,8 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const SVGNS = 'http://www.w3.org/2000/svg';
 const svel = (t, a = {}) => { const n = document.createElementNS(SVGNS, t); for (const k in a) n.setAttribute(k, a[k]); return n; };
 
+// "100 m² · 3 vær." — skips missing parts so we never render "null vær."
+const dims = r => [r.a ? `${r.a} m²` : null, r.r ? `${r.r} vær.` : null].filter(Boolean).join(' · ');
 const kr = n => n == null ? '–' : Math.round(n).toLocaleString('da-DK') + ' kr';
 const krM = n => n == null ? '–' : (n >= 1e6 ? (n / 1e6).toLocaleString('da-DK', { maximumFractionDigits: 2 }) + ' mio. kr'
   : Math.round(n / 1000).toLocaleString('da-DK') + '.000 kr');
@@ -523,7 +525,11 @@ function renderSoldDecade() {
   if (S.type !== 'villa' && bd.condo) series.push({ name: 'Ejerlejlighed', color: cssVar('--condo'), values: decades.map(d => bd.condo[d] ?? null) });
   if (S.type !== 'condo' && bd.villa) series.push({ name: 'Villa/hus', color: cssVar('--villa'), values: decades.map(d => bd.villa[d] ?? null) });
   if (!series.length) { box.append(el('div', { class: 'loading' }, 'Ingen data for den valgte boligtype.')); if (note) note.textContent = ''; return; }
-  lineChart(box, xlab, series, { legend: true, yfmt: kc, tfmt: m2, xticks: decades.map((_, i) => [i, xlab[i]]) });
+  // thin the decade labels so they don't overlap (show ~8 evenly, always incl. last)
+  const dN = decades.length, dStep = Math.max(1, Math.ceil((dN - 1) / 7)), dIdx = [];
+  for (let i = 0; i < dN; i += dStep) dIdx.push(i);
+  if (dIdx[dIdx.length - 1] !== dN - 1) dIdx.push(dN - 1);
+  lineChart(box, xlab, series, { legend: true, yfmt: kc, tfmt: m2, xticks: dIdx.map(i => [i, xlab[i]]) });
   if (note) note.textContent = 'Median realiseret kr/m² efter opførelsesårti (BBR), hele korridoren, seneste 12 mdr. Kilde: Boliga/tinglysning + BBR.';
 }
 
@@ -841,7 +847,7 @@ function renderOutliers(f) {
     a.append(el('span', { class: 'ol-z ' + (z < 0 ? 'lo' : 'hi') }, (pct > 0 ? '+' : '') + pct + ' %'));
     a.append(el('span', { class: 'ol-main' },
       el('b', {}, r.adr),
-      el('small', {}, `${names[r.muni] || r.muni} · ${r.t === 'villa' ? 'villa' : 'ejerlejl.'} · ${r.a} m² · ${r.r} vær. · z ${(z > 0 ? '+' : '−') + Math.abs(z).toFixed(1).replace('.', ',')}`)));
+      el('small', {}, `${names[r.muni] || r.muni} · ${r.t === 'villa' ? 'villa' : 'ejerlejl.'} · ${dims(r)} · z ${(z > 0 ? '+' : '−') + Math.abs(z).toFixed(1).replace('.', ',')}`)));
     a.append(el('span', { class: 'ol-num' }, el('b', {}, m2(r.m2p)), el('small', {}, `område: ${m2(med)}`)));
     a.append(el('span', { class: 'ol-num' }, el('b', {}, krM(r.p)), el('small', {}, `${r.d} dage`)));
     box.append(a);
@@ -864,7 +870,7 @@ function renderPriceChanges(f) {
       const a = el('a', { class: 'ol-row', href: r.url || '#', target: '_blank', rel: 'noopener' });
       a.append(el('span', { class: 'ol-z lo' }, Math.round(r.chg) + ' %'));
       a.append(el('span', { class: 'ol-main' }, el('b', {}, r.adr),
-        el('small', {}, `${names[r.muni] || r.muni} · ${r.t === 'villa' ? 'villa' : 'ejerlejl.'} · ${r.a} m² · ${r.r} vær.`)));
+        el('small', {}, `${names[r.muni] || r.muni} · ${r.t === 'villa' ? 'villa' : 'ejerlejl.'} · ${dims(r)}`)));
       a.append(el('span', { class: 'ol-num' }, el('b', {}, krM(r.p)), el('small', {}, m2(r.m2p))));
       a.append(el('span', { class: 'ol-num' }, el('b', {}, r.d + ' dage'), el('small', {}, r.near ? '🚆 nær S-tog' : '')));
       box.append(a);
@@ -1295,7 +1301,7 @@ function drawBoundaries() {
   });
 }
 function listingTip(r) {
-  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m² · ${r.r} vær.</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d} dage</b></div><div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>`;
+  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}`;
 }
 // dots grow as you zoom in — keeps them visible and easy to hover/hit
 const radiusForZoom = z => Math.max(4, Math.min(11, 4 + (z - 10) * 1.15));
@@ -1585,7 +1591,7 @@ function card(r) {
   thumb.append(fav);
   thumb.append(el('span', { class: 'badge ' + r.t }, r.t === 'villa' ? 'Villa' : 'Ejerlejl.'));
   if (r.d != null && r.d <= NEW_DAYS) thumb.append(el('span', { class: 'newbadge' }, 'Ny'));
-  thumb.append(el('span', { class: 'stbadge' + (r.near ? ' near' : '') }, `${r.near ? '🚆 ' : ''}${r.ssn} · ${(r.sst / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 })} km`));
+  if (r.ssn) thumb.append(el('span', { class: 'stbadge' + (r.near ? ' near' : '') }, `${r.near ? '🚆 ' : ''}${r.ssn} · ${(r.sst / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 })} km`));
   a.append(thumb);
   const body = el('div', { class: 'body' });
   body.append(el('div', { class: 'price' }, krM(r.p)));
@@ -1593,11 +1599,11 @@ function card(r) {
   body.append(el('div', { class: 'city' }, (r.zip ? r.zip + ' ' : '') + r.city));
   const meta = el('div', { class: 'meta' });
   meta.append(el('span', {}, el('b', {}, m2(r.m2p))));
-  meta.append(el('span', {}, `${r.a} m²`));
-  meta.append(el('span', {}, `${r.r} vær.`));
+  if (r.a) meta.append(el('span', {}, `${r.a} m²`));
+  if (r.r) meta.append(el('span', {}, `${r.r} vær.`));
   if (r.y) meta.append(el('span', {}, `opf. ${r.y}`));
   if (r.e) meta.append(el('span', {}, `E: ${String(r.e).toUpperCase().replace('2015', ' 2015')}`));
-  meta.append(el('span', {}, `${r.d} dage`));
+  if (r.d != null) meta.append(el('span', {}, `${r.d} dage`));
   if (r.chg < 0) meta.append(el('span', { class: 'cut' }, `↓ ${Math.abs(r.chg).toLocaleString('da-DK', { maximumFractionDigits: 1 })} %`));
   if (S.A || S.B) {
     const parts = [];

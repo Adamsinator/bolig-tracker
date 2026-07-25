@@ -99,8 +99,9 @@ function renderTable(mo, order) {
 // yield curve — effective rate across the term-ordered fixation buckets
 function renderCurve(mo) {
   const mount = $('#curveChart'); mount.innerHTML = '';
+  const SHORT = { 'Variabel (≤3 mdr.)': '≤3 mdr.', 'Variabel (≤6 mdr.)': '≤6 mdr.', 'Kort rente (≤1 år)': '≤1 år', '1–5 år': '1–5 år', '5–10 år': '5–10 år', 'Fast (>10 år)': 'Fast' };
   const order = ['Variabel (≤3 mdr.)', 'Variabel (≤6 mdr.)', 'Kort rente (≤1 år)', '1–5 år', '5–10 år', 'Fast (>10 år)'];
-  const pts = order.filter(l => mo.latest[l]).map(l => ({ lab: l.replace(/ \(.*\)/, '').replace('Variabel', 'Var.'), v: mo.latest[l].rate, full: l }));
+  const pts = order.filter(l => mo.latest[l]).map(l => ({ lab: SHORT[l] || l, v: mo.latest[l].rate, full: l }));
   if (pts.length < 2) { mount.append(el('div', { class: 'loading' }, 'Ingen data.')); return; }
   const W = 640, H = 300, padL = 42, padR = 14, padT = 16, padB = 74, plotW = W - padL - padR, plotH = H - padT - padB;
   const vals = pts.map(p => p.v), lo = Math.max(0, Math.min(...vals) - 0.6), hi = Math.max(...vals) + 0.4;
