@@ -7,7 +7,7 @@ const S = {
   priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null,
   lotMin: null, floorMin: null, yearMin: null, daysMax: null, energyMin: null,
   hasBasement: false, hasElevator: false, hasBalcony: false,
-  search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, trackerMap: null, onlyCut: false,
+  search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, showMetro: true, trackerMap: null, onlyCut: false,
   favs: {}, onlyFav: false, cmpA: null, cmpB: null, onlyNew: false, hideHf: false,
   A: null, B: null, radA: 3, radB: 3,   // home/work points {name,lat,lon}
   dstArea: '01', indexMode: 'krm2', bvc: null,
@@ -120,6 +120,7 @@ function initUI() {
   on('#hasBalcony', 'hasBalcony'); on('#colorBy', 'colorBy'); on('#sort', 'sort');
   on('#nearS', 'nearS'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew'); on('#hideHf', 'hideHf');
   $('#showRail').addEventListener('change', e => { S.showRail = e.target.checked; applyRailVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
+  $('#showMetro').addEventListener('change', e => { S.showMetro = e.target.checked; applyTransitVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
   $('#search').addEventListener('input', e => {
     S.search = e.target.value.toLowerCase().trim(); S.shown = 60; render();
     // A postnummer (4-digit token, e.g. 2900) zooms the map to that area only;
@@ -968,9 +969,11 @@ function initMap() {
   MAP.L.listings = L.layerGroup().addTo(map);
   MAP.L.labels = L.layerGroup().addTo(map);
   MAP.L.stations = L.layerGroup().addTo(map);
+  MAP.L.transit = L.layerGroup().addTo(map);
   MAP.L.geo = L.layerGroup().addTo(map);
   map.fitBounds(regionBounds(), { padding: [12, 12] });
   drawRail(); drawStations(); applyRailVisibility();
+  drawTransit(); applyTransitVisibility();
   map.on('mouseout', hideTip);
   map.on('zoomend', () => { resizeDots(); drawPriceLabels(); });
   map.on('moveend', drawPriceLabels);
@@ -1008,6 +1011,27 @@ function applyRailVisibility() {
     if (S.showRail) { if (!MAP.map.hasLayer(layer)) layer.addTo(MAP.map); }
     else if (MAP.map.hasLayer(layer)) MAP.map.removeLayer(layer);
   });
+}
+// Metro + Ring 3 letbane overlay (data/meta.json → transit). Dormant until the
+// pipeline populates it; drawn as coloured line segments + station dots.
+const METRO_COLORS = { metro: '#e6212a', letbane: '#00a3c7' };
+function drawTransit() {
+  if (!MAP.L.transit) return;
+  MAP.L.transit.clearLayers();
+  const tr = S.meta && S.meta.transit; if (!tr) return;
+  (tr.lines || []).forEach(ln => {
+    const c = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour) : METRO_COLORS[ln.mode];
+    (ln.segs || []).forEach(seg => L.polyline(seg, { color: c, weight: 3, opacity: 0.85, lineCap: 'round', lineJoin: 'round', dashArray: ln.mode === 'letbane' ? '2 6' : null }).addTo(MAP.L.transit));
+  });
+  (tr.stations || []).forEach(st => {
+    L.circleMarker([st.lat, st.lon], { renderer: MAP.renderer, radius: 3.2, color: METRO_COLORS[st.mode], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
+      .addTo(MAP.L.transit).bindTooltip(st.name + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
+  });
+}
+function applyTransitVisibility() {
+  if (!MAP.map || !MAP.L.transit) return;
+  if (S.showMetro) { if (!MAP.map.hasLayer(MAP.L.transit)) MAP.L.transit.addTo(MAP.map); }
+  else if (MAP.map.hasLayer(MAP.L.transit)) MAP.map.removeLayer(MAP.L.transit);
 }
 function drawRail() {
   MAP.L.rail.clearLayers();
@@ -1135,7 +1159,7 @@ function drawMap(f) {
   renderMapLegend(S.colorBy, f, LINE_COLORS());
 }
 
-function refreshMapTheme() { if (MAP.inited) { setTiles(); drawRail(); drawStations(); } }
+function refreshMapTheme() { if (MAP.inited) { setTiles(); drawRail(); drawStations(); drawTransit(); } }
 function fitAll() { if (MAP.map) MAP.map.fitBounds(regionBounds(), { padding: [12, 12] }); }
 function fitToSelection() {
   if (!MAP.map) return;
@@ -1194,6 +1218,11 @@ function renderMapLegend(colorBy, f, lineColors) {
     box.append(el('span', { class: 'legend-item' }, label + ':'), el('span', { class: 'legend-item' }, colorBy === 'd' ? 'kort' : fmt(lo)), ramp, el('span', { class: 'legend-item' }, colorBy === 'd' ? 'lang' : fmt(hi)));
   }
   if (S.showRail) S.meta.lines.forEach(L => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line' + (L.corridor === 'kystbanen' ? ' dashed' : ''), style: `border-top-color:${lineColors[L.corridor]}` }), L.label)));
+  if (S.showMetro && S.meta.transit) {
+    const modes = new Set((S.meta.transit.lines || []).map(l => l.mode));
+    if (modes.has('metro')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
+    if (modes.has('letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
+  }
 }
 function legItem(color, text) { return el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${color}` }), text); }
 

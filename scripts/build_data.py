@@ -566,6 +566,69 @@ def track_listings(data_dir, listings, today, keep_removed_days=365):
     return {"tracked": len(items), "live": live, "withChanges": changed}
 
 
+# ---------------------------------------------------------------------------
+# Metro (M1–M4/Cityring) + Ring 3 letbane overlay, from OpenStreetMap via
+# Overpass. Purely additive: any failure just means no overlay this build, so
+# it never breaks the daily run. S-train logic (near/sst) is untouched.
+# ---------------------------------------------------------------------------
+OVERPASS_MIRRORS = ["https://overpass.kumi.systems/api/interpreter",
+                    "https://overpass-api.de/api/interpreter"]
+TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
+
+def fetch_transit():
+    s, w, n, e = TRANSIT_BBOX
+    q = (f'[out:json][timeout:90];'
+         f'(relation["route"="subway"]({s},{w},{n},{e});'
+         f'relation["route"="light_rail"]({s},{w},{n},{e}););out tags geom;'
+         f'(node["station"="subway"]({s},{w},{n},{e});'
+         f'node["station"="light_rail"]({s},{w},{n},{e}););out body;')
+    data = None
+    for url in OVERPASS_MIRRORS:
+        try:
+            req = urllib.request.Request(url, data=q.encode("utf-8"),
+                                         headers={"User-Agent": "bolig-tracker/1.0"})
+            with urllib.request.urlopen(req, timeout=100) as r:
+                data = json.load(r)
+            break
+        except Exception as ex:
+            print(f"  transit fetch via {url} failed ({ex})", file=sys.stderr)
+    if not data:
+        return None
+    lines, stations, seen = [], [], set()
+    for el in data.get("elements", []):
+        tags = el.get("tags") or {}
+        if el.get("type") == "relation" and tags.get("route") in ("subway", "light_rail"):
+            mode = "metro" if tags["route"] == "subway" else "letbane"
+            segs = [[[round(p["lat"], 5), round(p["lon"], 5)] for p in m["geometry"]]
+                    for m in el.get("members", []) if m.get("geometry")]
+            if segs:
+                lines.append({"mode": mode, "ref": tags.get("ref") or tags.get("name") or "",
+                              "colour": tags.get("colour") or tags.get("color"), "segs": segs})
+        elif el.get("type") == "node" and tags.get("name"):
+            key = (round(el["lat"], 4), round(el["lon"], 4))
+            if key not in seen:
+                seen.add(key)
+                mode = "letbane" if tags.get("station") == "light_rail" else "metro"
+                stations.append({"name": tags["name"], "mode": mode,
+                                 "lat": round(el["lat"], 5), "lon": round(el["lon"], 5)})
+    if not lines and not stations:
+        return None
+    print(f"  transit: {len(lines)} route relations, {len(stations)} stations")
+    return {"lines": lines, "stations": stations}
+
+
+def annotate_metro(listings, transit):
+    """Add nearest metro/letbane distance (mst) and a combined near-rail flag."""
+    pts = [(st["lat"], st["lon"]) for st in (transit or {}).get("stations", [])]
+    for r in listings:
+        if pts:
+            best = min(haversine_m(r["lat"], r["lon"], la, lo) for la, lo in pts)
+            r["mst"] = round(best)
+            r["nearRail"] = bool(r.get("near")) or best <= STRAIN_NEAR_M
+        else:
+            r["nearRail"] = bool(r.get("near"))
+
+
 def main():
     out = []
     counts = {"condo": 0, "villa": 0}
@@ -586,6 +649,10 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(here, "..", "data")
     os.makedirs(data_dir, exist_ok=True)
+
+    print("Fetching metro / letbane overlay…")
+    transit = fetch_transit()
+    annotate_metro(listings, transit)
 
     with open(os.path.join(data_dir, "listings.json"), "w", encoding="utf-8") as f:
         json.dump(listings, f, ensure_ascii=False, separators=(",", ":"))
@@ -626,6 +693,7 @@ def main():
         ],
         "lines": [{"corridor": c, "label": LINE_LABELS[c], "stops": stops}
                   for c, stops in LINES.items()],
+        "transit": transit,   # metro + letbane overlay (None if the fetch failed)
     }
     with open(os.path.join(data_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
