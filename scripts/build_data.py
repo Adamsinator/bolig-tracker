@@ -713,6 +713,122 @@ def annotate_metro(listings, transit):
             r["nearRail"] = bool(r.get("near"))
 
 
+# ---------------------------------------------------------------------------
+# Realised sold prices from Boliga, which aggregates tinglysning (the land
+# registry) and carries BBR attributes like build year and size. This gives a
+# per-kommune × type median *realised* kr/m² for roughly the last two years and
+# an asking-vs-sold gap — something the asking-price feed alone can't show.
+# Purely additive: any failure just means no sold.json this build.
+# ---------------------------------------------------------------------------
+BOLIGA_SOLD = "https://api.boliga.dk/api/v2/sold/search/results"
+BOLIGA_PTYPE = {"villa": 1, "condo": 3}   # Boliga propertyType codes
+SOLD_MONTHS = 24
+SOLD_RECENT_DAYS = 365                     # headline median = last 12 months
+MAX_SOLD_PAGES = 25                        # hard cap per kommune × type
+
+def _boliga_sold_page(code, ptype, date_min, page):
+    qs = urllib.parse.urlencode({
+        "municipality": code, "propertyType": ptype, "salesDateMin": date_min,
+        "pageSize": 500, "page": page, "sort": "date-d",
+    })
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(f"{BOLIGA_SOLD}?{qs}",
+                headers={"Accept": "application/json", "User-Agent": "bolig-tracker/1.0"})
+            with hard_timeout(40), urllib.request.urlopen(req, timeout=35) as r:
+                return json.load(r)
+        except Exception as ex:
+            if attempt == 2:
+                print(f"  sold fetch {code}/{ptype} p{page} failed ({ex})", file=sys.stderr)
+                return None
+            time.sleep(1.5 * (attempt + 1))
+    return None
+
+def _quarter(iso):
+    try:
+        return f"{int(iso[:4])}Q{(int(iso[5:7]) - 1) // 3 + 1}"
+    except Exception:
+        return None
+
+def fetch_sold(listings):
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=SOLD_MONTHS * 31)
+    recent_cut = now - timedelta(days=SOLD_RECENT_DAYS)
+    date_min = cutoff.strftime("%Y-%m-%d")
+    by_muni, series = {}, {}
+    logged_fields = False
+    total = 0
+    for slug, (name, code) in MUNICIPALITIES.items():
+        for t, ptype in BOLIGA_PTYPE.items():
+            recent_prices, recent_m2, by_q = [], [], {}
+            for page in range(1, MAX_SOLD_PAGES + 1):
+                data = _boliga_sold_page(code, ptype, date_min, page)
+                if not data:
+                    break
+                results = data.get("results") or data.get("Results") or []
+                if not logged_fields and results:
+                    print(f"  boliga sold fields: {sorted(results[0].keys())}")
+                    logged_fields = True
+                if not results:
+                    break
+                stop = False
+                for s in results:
+                    sd = str(s.get("soldDate") or s.get("SoldDate") or "")
+                    try:
+                        d = datetime.fromisoformat(sd[:10]).replace(tzinfo=timezone.utc)
+                    except Exception:
+                        d = None
+                    stype = str(s.get("saleType") or s.get("SaleType") or "").lower()
+                    if any(k in stype for k in ("fam", "auktion", "auction")):
+                        continue          # arm's-length sales only
+                    m2 = s.get("sqmPrice") or s.get("SqmPrice")
+                    price = s.get("price") or s.get("Price")
+                    q = _quarter(sd)
+                    if m2 and m2 > 0:
+                        if q:
+                            by_q.setdefault(q, []).append(m2)
+                        if d and d >= recent_cut:
+                            recent_m2.append(m2)
+                            if price and price > 0:
+                                recent_prices.append(price)
+                    if d and d < cutoff:
+                        stop = True
+                total += len(results)
+                meta_total = (data.get("meta") or {}).get("totalCount")
+                if stop or (meta_total and page * 500 >= meta_total):
+                    break
+                time.sleep(0.25)
+            if recent_m2:
+                by_muni.setdefault(slug, {})[t] = {
+                    "n": len(recent_m2),
+                    "medPrice": round(median(recent_prices)) if recent_prices else None,
+                    "medM2": round(median(recent_m2)),
+                }
+            if by_q:
+                series.setdefault(slug, {})[t] = {q: round(median(v)) for q, v in by_q.items()}
+            print(f"  sold {name:16} {t:6} {len(recent_m2)} recent sales")
+    if not by_muni:
+        return None
+    # asking-vs-sold gap: current median asking kr/m² vs recent median realised kr/m²
+    ask = {}
+    for r in listings:
+        if r.get("m2p") and r.get("muni") and r.get("t"):
+            ask.setdefault((r["muni"], r["t"]), []).append(r["m2p"])
+    gap = {}
+    for slug, per in by_muni.items():
+        for t, agg in per.items():
+            a = ask.get((slug, t))
+            if a and agg.get("medM2"):
+                am = median(a)
+                gap.setdefault(slug, {})[t] = {"askM2": round(am), "soldM2": agg["medM2"],
+                                               "gapPct": round((am / agg["medM2"] - 1) * 100)}
+    quarters = sorted({q for per in series.values() for s in per.values() for q in s})
+    print(f"  sold: {total} rows scanned, {len(by_muni)} kommuner with recent sales")
+    return {"generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "windowMonths": SOLD_MONTHS,
+            "recentDays": SOLD_RECENT_DAYS, "byMuni": by_muni, "askingVsSold": gap,
+            "quarters": quarters, "series": series}
+
+
 def main():
     out = []
     counts = {"condo": 0, "villa": 0}
@@ -765,6 +881,12 @@ def main():
         with open(os.path.join(data_dir, "bvc.json"), "w", encoding="utf-8") as f:
             json.dump(bvc, f, ensure_ascii=False, separators=(",", ":"))
 
+    print("Fetching realised sold prices (Boliga / tinglysning)…")
+    sold = fetch_sold(listings)
+    if sold:
+        with open(os.path.join(data_dir, "sold.json"), "w", encoding="utf-8") as f:
+            json.dump(sold, f, ensure_ascii=False, separators=(",", ":"))
+
     meta = {
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": "boligsiden.dk",
@@ -781,15 +903,18 @@ def main():
         "lines": [{"corridor": c, "label": LINE_LABELS[c], "stops": stops}
                   for c, stops in LINES.items()],
         "transit": transit,   # metro + letbane overlay (None if the fetch failed)
+        "hasSold": bool(sold),   # realised sold-price data available this build
     }
     with open(os.path.join(data_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
 
     n_hf = sum(1 for r in listings if r.get("hf"))
+    n_sold = sum(len(v) for v in (sold or {}).get("byMuni", {}).values()) if sold else 0
     print(f"\nWrote {len(listings)} listings (condo={counts['condo']}, "
           f"villa={counts['villa']}), {len(geo)} boundaries, {ndates} history date(s), "
           f"{track['tracked']} tracked ({track['live']} live, {track['withChanges']} with price changes), "
-          f"{n_hf} with hjemfald/tilbagekøb.")
+          f"{n_hf} with hjemfald/tilbagekøb, "
+          f"{'sold data for ' + str(n_sold) + ' kommune×type groups' if sold else 'no sold data'}.")
 
 
 if __name__ == "__main__":
