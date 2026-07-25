@@ -355,6 +355,47 @@ def fetch_dst_index():
 
 
 # ---------------------------------------------------------------------------
+# Mortgage rates (realkreditrenter). Danmarks Nationalbank's statbank is the
+# authoritative source and speaks the same PX-Web API as Danmarks Statistik.
+# We can't reach it from the dev sandbox, so this first pass is a DISCOVERY
+# step: list the rate-related tables and log their ids/dimensions from the CI
+# run, then we build the real fetch against the confirmed table. Purely additive.
+# ---------------------------------------------------------------------------
+NB_API = "https://nationalbanken.statistikbank.dk/api/v1"
+
+def _nb_get(path):
+    try:
+        with hard_timeout(40), urllib.request.urlopen(f"{NB_API}/{path}", timeout=35) as r:
+            return json.load(r)
+    except Exception as ex:
+        print(f"  mortgage: {path} failed ({ex})", file=sys.stderr)
+        return None
+
+def fetch_mortgage():
+    tables = _nb_get("tables?format=JSON")
+    if not tables:
+        return None
+    kw = ("realkredit", "udlån", "udlaan", "rente", "obligation", "mortgage", "lending", "bond")
+    hits = [t for t in tables if any(k in (str(t.get("text", "")) + str(t.get("id", ""))).lower() for k in kw)]
+    print(f"  mortgage: {len(tables)} NB tables, {len(hits)} rate/bond-related")
+    for t in hits[:30]:
+        print(f"    NB {t.get('id')}: {t.get('text')}")
+    # probe dimensions of the most promising lending-rate tables so we learn the
+    # variable/category structure in the same run
+    for t in hits:
+        tid = str(t.get("id", ""))
+        txt = str(t.get("text", "")).lower()
+        if any(k in txt for k in ("udlån", "udlaan", "effektiv")) and "rente" in txt:
+            info = _nb_get(f"tableinfo/{tid}?format=JSON")
+            if info:
+                vs = info.get("variables") or []
+                print(f"    DIMS {tid}: " + " | ".join(
+                    f"{v.get('id') or v.get('text')}[{len(v.get('values', []))}]" for v in vs))
+            break
+    return None   # discovery only — no data emitted yet
+
+
+# ---------------------------------------------------------------------------
 # Long real (inflation-adjusted) price index — Boligøkonomisk Videncenter.
 # Houses back to 1938, condos back to 1973, for the Copenhagen area.
 # ---------------------------------------------------------------------------
@@ -900,6 +941,9 @@ def main():
     if sold:
         with open(os.path.join(data_dir, "sold.json"), "w", encoding="utf-8") as f:
             json.dump(sold, f, ensure_ascii=False, separators=(",", ":"))
+
+    print("Discovering mortgage-rate tables (Nationalbanken)…")
+    fetch_mortgage()
 
     meta = {
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
