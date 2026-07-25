@@ -44,7 +44,7 @@ const PRICES = [1e6, 1.5e6, 2e6, 2.5e6, 3e6, 4e6, 5e6, 7.5e6, 10e6, 15e6, 20e6, 
 /* ===================== load ===================== */
 async function boot() {
   try {
-    const [meta, listings, geo, index, history, bvc, sold] = await Promise.all([
+    const [meta, listings, geo, index, history, bvc, sold, mortgage] = await Promise.all([
       fetch('data/meta.json').then(r => r.json()),
       fetch('data/listings.json').then(r => r.json()),
       fetch('data/geo.json').then(r => r.json()).catch(() => ({})),
@@ -52,8 +52,9 @@ async function boot() {
       fetch('data/history.json').then(r => r.json()).catch(() => ({ series: [] })),
       fetch('data/bvc.json').then(r => r.json()).catch(() => null),
       fetch('data/sold.json').then(r => r.json()).catch(() => null),
+      fetch('data/mortgage.json').then(r => r.json()).catch(() => null),
     ]);
-    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold;
+    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold; S.mortgage = mortgage;
     meta.municipalities.forEach(m => S.munis.add(m.slug));
     S.favs = loadFavs();    // saved homes (device-local)
     decodeState();          // apply any filters carried in the URL
@@ -339,6 +340,7 @@ function render() {
   renderOutliers(f);
   renderPriceChanges(f);
   renderIndexChart();
+  renderMortgage();
   renderTrendChart();
   renderCompare();
   drawMap(f);
@@ -491,6 +493,40 @@ function renderSoldTrend(f) {
   else { const step = Math.ceil((N - 1) / 6); idxs = []; for (let i = 0; i < N; i += step) idxs.push(i); if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1); }
   lineChart(mount, quarters, series, { legend: true, yfmt: kc, tfmt: m2, refs, xticks: idxs.map(i => [i, quarters[i]]), empty: 'Ingen realiserede salgsdata for det valgte område.' });
   if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = nuværende udbudsniveau. Kilde: Boliga/tinglysning.`;
+}
+
+// Realkreditrenter — effektiv rente på nyudstedte lån efter rentebinding
+// (Nationalbanken via statbank). Latest-rate tiles + a rate-over-time chart.
+// (MONTHS_DA is declared once further down and shared with the price-change list.)
+const fmtYM = ym => { const [y, m] = String(ym).split('M'); return (MONTHS_DA[+m - 1] || '') + ' ' + y; };
+const MORTGAGE_COLORS = ['#e6212a', '#e08a00', '#12a06f', '#1c5cb0', '#7a5cff', '#00a3c7', '#555'];
+function renderMortgage() {
+  const card = $('#mortgageCard'); if (!card) return;
+  const mo = S.mortgage;
+  if (!mo || !mo.months || !mo.months.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const order = (mo.order || Object.keys(mo.series)).filter(l => mo.series[l]);
+  const tiles = $('#mortgageTiles'); tiles.innerHTML = '';
+  order.forEach(lab => {
+    const l = mo.latest[lab]; if (!l) return;
+    tiles.append(el('div', { class: 'kstat' },
+      el('div', { class: 'kstat-v' }, l.rate.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %'),
+      el('div', { class: 'kstat-l' }, lab)));
+  });
+  // rate-over-time — last ~12 years, a readable subset of fixations
+  const n = mo.months.length, start = Math.max(0, n - 144);
+  const xs = mo.months.slice(start), xlab = xs.map(fmtYM);
+  const prefer = ['Variabel (≤3 mdr.)', '1–5 år', 'Fast (>10 år)', 'Alle lån'];
+  const labs = order.filter(l => prefer.includes(l));
+  const series = (labs.length ? labs : order).map((lab, i) => ({ name: lab, color: MORTGAGE_COLORS[i % MORTGAGE_COLORS.length], values: mo.series[lab].slice(start) }));
+  const N = xs.length, step = Math.max(1, Math.ceil((N - 1) / 6)), idxs = [];
+  for (let i = 0; i < N; i += step) idxs.push(i);
+  if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1);
+  lineChart($('#mortgageChart'), xlab, series, { legend: true, yfmt: v => v.toFixed(1) + '%', tfmt: v => v.toFixed(2) + ' %', xticks: idxs.map(i => [i, xlab[i]]) });
+  const src = $('#mortgageSrc');
+  if (src) src.textContent = mo.latest['Alle lån'] ? '· seneste ' + fmtYM(mo.latest['Alle lån'].month) : '';
+  const note = $('#mortgageNote');
+  if (note) note.textContent = `${mo.unit}. Renten på nyudstedte realkreditlån efter oprindelig rentebinding. Kilde: ${mo.source}.`;
 }
 // rows: [{label, value, n?, color?}].  opt: yfmt (y-axis + on-column label),
 // fmt (full value for tooltip), vlabel, tip(r) (custom tooltip), angle (x-label
