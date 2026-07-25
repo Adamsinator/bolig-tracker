@@ -577,12 +577,14 @@ TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhage
 
 def _overpass(query):
     """Run one Overpass query against the mirrors; return parsed JSON or None.
-    Kept small so each concern (lines, stations) can fail independently."""
+    Kept small so each concern (lines, stations) can fail independently. Socket
+    timeout is short so a *hanging* mirror fails over quickly instead of blocking
+    the whole build — this overlay is optional and must never stall the run."""
     for url in OVERPASS_MIRRORS:
         try:
             req = urllib.request.Request(url, data=query.encode("utf-8"),
                                          headers={"User-Agent": "bolig-tracker/1.0"})
-            with urllib.request.urlopen(req, timeout=100) as r:
+            with urllib.request.urlopen(req, timeout=40) as r:
                 return json.load(r)
         except Exception as ex:
             print(f"  transit fetch via {url} failed ({ex})", file=sys.stderr)
@@ -595,7 +597,7 @@ def fetch_transit():
     # timeout on one no longer wipes out the other.
     stations, seen = [], set()
     sdata = _overpass(
-        f'[out:json][timeout:60];'
+        f'[out:json][timeout:30];'
         f'(node["station"="subway"]({s},{w},{n},{e});'
         f'node["station"="light_rail"]({s},{w},{n},{e}););out body;')
     for el in (sdata or {}).get("elements", []):
@@ -610,7 +612,7 @@ def fetch_transit():
 
     lines = []
     ldata = _overpass(
-        f'[out:json][timeout:90];'
+        f'[out:json][timeout:30];'
         f'(way["railway"="subway"]({s},{w},{n},{e});'
         f'way["railway"="light_rail"]({s},{w},{n},{e}););out geom;')
     for el in (ldata or {}).get("elements", []):
@@ -652,7 +654,7 @@ def confirm_encumbrance(listings):
     for r in cands:
         try:
             req = urllib.request.Request(r["url"], headers={"User-Agent": "Mozilla/5.0 bolig-tracker/1.0"})
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 html = resp.read(500000).decode("utf-8", "ignore")
             if _ENCUMBRANCE_RE.search(html):
                 r["hf"] = True
