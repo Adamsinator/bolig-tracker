@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="styles.css?v=22">
+<link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 <div id="app">
@@ -81,6 +81,7 @@
         <label class="filter check"><input type="checkbox" id="hasBalcony"> Altan/terrasse</label>
         <label class="filter check"><input type="checkbox" id="onlyCut"> Kun nedsat pris</label>
         <label class="filter check"><input type="checkbox" id="onlyNew"> Kun nye (≤ 14 dage)</label>
+        <label class="filter check"><input type="checkbox" id="hideHf"> Skjul hjemfald/tilbagekøb</label>
         <button class="reset-btn" id="resetFilters" type="button">Nulstil filtre</button>
       </div>
     </details>
@@ -277,7 +278,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=22"></script>
+<script src="app.js?v=23"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 </body>
 </html>

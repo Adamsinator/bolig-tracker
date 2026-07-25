@@ -8,7 +8,7 @@ const S = {
   lotMin: null, floorMin: null, yearMin: null, daysMax: null, energyMin: null,
   hasBasement: false, hasElevator: false, hasBalcony: false,
   search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, trackerMap: null, onlyCut: false,
-  favs: {}, onlyFav: false, cmpA: null, cmpB: null, onlyNew: false,
+  favs: {}, onlyFav: false, cmpA: null, cmpB: null, onlyNew: false, hideHf: false,
   A: null, B: null, radA: 3, radB: 3,   // home/work points {name,lat,lon}
   dstArea: '01', indexMode: 'krm2', bvc: null,
 };
@@ -118,7 +118,7 @@ function initUI() {
   on('#floorMin', 'floorMin', 1); on('#yearMin', 'yearMin', 1); on('#daysMax', 'daysMax', 1);
   on('#energyMin', 'energyMin'); on('#hasBasement', 'hasBasement'); on('#hasElevator', 'hasElevator');
   on('#hasBalcony', 'hasBalcony'); on('#colorBy', 'colorBy'); on('#sort', 'sort');
-  on('#nearS', 'nearS'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew');
+  on('#nearS', 'nearS'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew'); on('#hideHf', 'hideHf');
   $('#showRail').addEventListener('change', e => { S.showRail = e.target.checked; applyRailVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
   $('#search').addEventListener('input', e => {
     S.search = e.target.value.toLowerCase().trim(); S.shown = 60; render();
@@ -187,21 +187,21 @@ function initUI() {
 
 function resetFilters() {
   Object.assign(S, { priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null, lotMin: null,
-    floorMin: null, yearMin: null, daysMax: null, energyMin: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false });
+    floorMin: null, yearMin: null, daysMax: null, energyMin: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false, hideHf: false });
   ['#priceMin', '#priceMax', '#rooms', '#areaMin', '#areaMax', '#lotMin', '#floorMin', '#yearMin', '#daysMax', '#energyMin'].forEach(id => $(id).value = '');
-  ['#hasBasement', '#hasElevator', '#hasBalcony', '#onlyCut', '#onlyNew'].forEach(id => $(id).checked = false);
+  ['#hasBasement', '#hasElevator', '#hasBalcony', '#onlyCut', '#onlyNew', '#hideHf'].forEach(id => $(id).checked = false);
   S.shown = 60; render();
 }
 function activeFilterCount() {
   let n = 0;
   ['priceMin', 'priceMax', 'rooms', 'areaMin', 'areaMax', 'lotMin', 'floorMin', 'yearMin', 'daysMax', 'energyMin'].forEach(k => { if (S[k]) n++; });
-  ['hasBasement', 'hasElevator', 'hasBalcony', 'onlyCut', 'onlyNew'].forEach(k => { if (S[k]) n++; });
+  ['hasBasement', 'hasElevator', 'hasBalcony', 'onlyCut', 'onlyNew', 'hideHf'].forEach(k => { if (S[k]) n++; });
   return n;
 }
 
 /* ---- shareable state in the URL (so a filtered view can be bookmarked) ---- */
 const NUM_KEYS = ['priceMin', 'priceMax', 'rooms', 'areaMin', 'areaMax', 'lotMin', 'floorMin', 'yearMin', 'daysMax'];
-const CHECK_KEYS = ['hasBasement', 'hasElevator', 'hasBalcony', 'nearS', 'onlyCut', 'onlyNew'];
+const CHECK_KEYS = ['hasBasement', 'hasElevator', 'hasBalcony', 'nearS', 'onlyCut', 'onlyNew', 'hideHf'];
 function decodeState() {
   const p = new URLSearchParams(location.search);
   if (![...p.keys()].length) return;
@@ -302,6 +302,7 @@ function filtered() {
     if (S.hasBalcony && !r.balc) return false;
     if (S.onlyCut && !(r.chg < 0)) return false;                    // only price-reduced
     if (S.onlyNew && !(r.d != null && r.d <= NEW_DAYS)) return false; // only new listings
+    if (S.hideHf && r.hf) return false;                              // hide land-reversion homes
     if (S.onlyFav && !S.favs[String(r.id)]) return false;           // only saved homes
     if (S.A && haversine(r.lat, r.lon, S.A.lat, S.A.lon) > S.radA) return false;
     if (S.B && haversine(r.lat, r.lon, S.B.lat, S.B.lon) > S.radB) return false;
@@ -1226,7 +1227,9 @@ function fundScore(r) {
 let _fv = null;
 function fairValue() {
   if (_fv) return _fv;
-  const rows = S.all.filter(r => r.m2p > 0 && r.a > 0);
+  // exclude homes with a kommune land-reversion clause — their asking price
+  // reflects the encumbrance, not the home, and would distort the model
+  const rows = S.all.filter(r => r.m2p > 0 && r.a > 0 && !r.hf);
   const out = { pred: new Map(), resid: new Map(), r2: null };
   if (rows.length < 200) { _fv = out; return out; }
   const munis = [...new Set(rows.map(r => r.muni))].sort();
@@ -1336,13 +1339,17 @@ function card(r) {
     meta.append(el('span', { class: 'commute-dist' }, parts.join(' · ')));
   }
   body.append(meta);
-  // fair-value model: how the asking kr/m² compares to what the model predicts
-  const fvr = fairValue().resid.get(r.id), fvp = fairValue().pred.get(r.id);
-  if (fvr != null && Math.abs(fvr) >= 6) {
-    const under = fvr < 0;
-    const vb = el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)}` },
-      `${under ? '↓' : '↑'} ${Math.abs(fvr)} % ${under ? 'under' : 'over'} vurdering`);
-    body.append(vb);
+  if (r.hf) {
+    // kommune land-reversion clause — flag it; its low price isn't a "deal"
+    body.append(el('div', { class: 'hfbadge', title: 'Kommunen har hjemfaldspligt / tilbagekøbsret på grunden — kan sænke værdien markant. Læs annoncen.' }, '⚠ Hjemfald / tilbagekøb'));
+  } else {
+    // fair-value model: how the asking kr/m² compares to what the model predicts
+    const fvr = fairValue().resid.get(r.id), fvp = fairValue().pred.get(r.id);
+    if (fvr != null && Math.abs(fvr) >= 6) {
+      const under = fvr < 0;
+      body.append(el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)}` },
+        `${under ? '↓' : '↑'} ${Math.abs(fvr)} % ${under ? 'under' : 'over'} vurdering`));
+    }
   }
   // if you saved this home and its asking price has changed since, flag it
   const fv = S.favs[String(r.id)];

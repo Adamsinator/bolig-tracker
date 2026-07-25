@@ -10,6 +10,7 @@ No API key, no auth. Dependency-free (stdlib only) so it runs locally and in CI.
 import json
 import math
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -141,6 +142,17 @@ def floor_num(raw):
         return None
 
 
+# Kommune land-reversion clauses (hjemfaldspligt / tilbagekøbsret) can slash a
+# home's value — the agent must disclose them, so scan the whole case payload
+# (schema-agnostic) for the tell-tale words.
+_ENCUMBRANCE_RE = re.compile(r"hjemfald|tilbagek[øo]b|tilbagesk[øo]d", re.IGNORECASE)
+def has_land_encumbrance(case):
+    try:
+        return bool(_ENCUMBRANCE_RE.search(json.dumps(case, ensure_ascii=False)))
+    except Exception:
+        return False
+
+
 def trim(case):
     addr = case.get("address") or {}
     coords = case.get("coordinates") or {}
@@ -187,6 +199,7 @@ def trim(case):
         "sst": round(strain_d),        # metres to nearest S-train station
         "ssn": strain_only[0],          # nearest S-train station name
         "near": strain_d <= STRAIN_NEAR_M,
+        "hf": has_land_encumbrance(case),   # hjemfaldspligt / tilbagekøbsret disclosed
     }
 
 
@@ -617,9 +630,11 @@ def main():
     with open(os.path.join(data_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
 
+    n_hf = sum(1 for r in listings if r.get("hf"))
     print(f"\nWrote {len(listings)} listings (condo={counts['condo']}, "
           f"villa={counts['villa']}), {len(geo)} boundaries, {ndates} history date(s), "
-          f"{track['tracked']} tracked ({track['live']} live, {track['withChanges']} with price changes).")
+          f"{track['tracked']} tracked ({track['live']} live, {track['withChanges']} with price changes), "
+          f"{n_hf} with hjemfald/tilbagekøb.")
 
 
 if __name__ == "__main__":
