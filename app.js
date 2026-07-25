@@ -19,6 +19,10 @@ const el = (t, a = {}, ...kids) => {
   for (const c of kids) if (c != null) n.append(c.nodeType ? c : document.createTextNode(c));
   return n;
 };
+// HTML-escape untrusted text (listing addresses, city/station names, user input)
+// before it goes into innerHTML / Leaflet tooltips. el() text children are already
+// safe (createTextNode above); this covers the template-literal sinks.
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const SVGNS = 'http://www.w3.org/2000/svg';
 const svel = (t, a = {}) => { const n = document.createElementNS(SVGNS, t); for (const k in a) n.setAttribute(k, a[k]); return n; };
 
@@ -719,7 +723,7 @@ function renderScatter(f) {
   svg.append(gDots);
   gDots.addEventListener('mousemove', e => {
     const t = e.target; if (t.tagName !== 'circle' || !t._r) return; const r = t._r;
-    showTip(`<div class="tt-title">${r.adr}</div><div class="tt-row"><span>${r.city}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m²</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div>`, e.clientX, e.clientY);
+    showTip(`<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m²</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div>`, e.clientX, e.clientY);
   }, true);
   gDots.addEventListener('mouseout', hideTip, true);
 
@@ -913,7 +917,7 @@ function lineChart(mount, xLabels, series, opt = {}) {
     const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W;
     let i = Math.round((px - padL) / plotW * (pts - 1)); i = Math.max(0, Math.min(pts - 1, i));
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.style.display = '';
-    const rows = series.map(s => s.values[i] != null ? `<div class="tt-row"><span><i class="dot" style="background:${s.color}"></i>${s.name}</span><b>${opt.tfmt ? opt.tfmt(s.values[i]) : s.values[i]}</b></div>` : '').join('');
+    const rows = series.map(s => s.values[i] != null ? `<div class="tt-row"><span><i class="dot" style="background:${s.color}"></i>${esc(s.name)}</span><b>${opt.tfmt ? opt.tfmt(s.values[i]) : s.values[i]}</b></div>` : '').join('');
     showTip(`<div class="tt-title">${xLabels[i]}</div>${rows}`, e.clientX, e.clientY);
   });
   hit.addEventListener('mouseleave', () => { cross.style.display = 'none'; hideTip(); });
@@ -1194,7 +1198,7 @@ function drawTransit() {
   });
   (tr.stations || []).forEach(st => {
     L.circleMarker([st.lat, st.lon], { renderer: MAP.renderer, radius: 3.2, color: METRO_COLORS[st.mode], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
-      .addTo(MAP.L.transit).bindTooltip(st.name + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
+      .addTo(MAP.L.transit).bindTooltip(esc(st.name) + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
   });
   drawTransitLabels();
 }
@@ -1208,7 +1212,7 @@ function drawTransitLabels() {
   const tr = S.meta && S.meta.transit;
   if (!tr || !MAP.map || MAP.map.getZoom() < TRANSIT_LABEL_ZOOM) return;
   (tr.stations || []).forEach(st => {
-    L.marker([st.lat, st.lon], { icon: L.divIcon({ className: 'st-name', html: st.name, iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
+    L.marker([st.lat, st.lon], { icon: L.divIcon({ className: 'st-name', html: esc(st.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
   });
 }
 function applyTransitVisibility() {
@@ -1233,9 +1237,9 @@ function drawStations() {
   const col = LINE_COLORS();
   S.meta.stations.forEach(s => {
     L.circleMarker([s.lat, s.lon], { renderer: MAP.renderer, radius: s.strain ? 4 : 3, color: col[s.corridor], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
-      .addTo(MAP.L.stations).bindTooltip(s.name + (s.strain ? '' : ' · Kystbanen'), { direction: 'top', offset: [0, -4] });
+      .addTo(MAP.L.stations).bindTooltip(esc(s.name) + (s.strain ? '' : ' · Kystbanen'), { direction: 'top', offset: [0, -4] });
     if (BIG_STATIONS.has(s.name))
-      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: s.name, iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(MAP.L.stations);
+      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: esc(s.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(MAP.L.stations);
   });
 }
 function drawBoundaries() {
@@ -1261,7 +1265,7 @@ function drawBoundaries() {
   });
 }
 function listingTip(r) {
-  return `<div class="tt-title">${r.adr}</div><div class="tt-row"><span>${r.city}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m² · ${r.r} vær.</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d} dage</b></div><div class="tt-row"><span>S-tog</span><b>${r.ssn} · ${r.sst} m</b></div>`;
+  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m² · ${r.r} vær.</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d} dage</b></div><div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>`;
 }
 // dots grow as you zoom in — keeps them visible and easy to hover/hit
 const radiusForZoom = z => Math.max(4, Math.min(11, 4 + (z - 10) * 1.15));
@@ -1323,7 +1327,7 @@ function drawGeoPoints() {
   const add = (pt, rad, emoji) => {
     if (!pt) return;
     L.circle([pt.lat, pt.lon], { radius: rad * 1000, color: cssVar('--condo'), weight: 1.5, dashArray: '5 5', fillColor: cssVar('--condo'), fillOpacity: .06 }).addTo(MAP.L.geo);
-    L.marker([pt.lat, pt.lon], { icon: L.divIcon({ className: 'geo-pin2', html: `<span>${emoji}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) }).addTo(MAP.L.geo).bindTooltip(pt.name, { direction: 'top', offset: [0, -12] });
+    L.marker([pt.lat, pt.lon], { icon: L.divIcon({ className: 'geo-pin2', html: `<span>${emoji}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) }).addTo(MAP.L.geo).bindTooltip(esc(pt.name), { direction: 'top', offset: [0, -12] });
   };
   add(S.A, S.radA, '🏠'); add(S.B, S.radB, '💼');
 }
