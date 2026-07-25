@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="styles.css?v=31">
 </head>
 <body>
 <div id="app">
@@ -181,6 +181,12 @@
     </div>
 
     <div class="card">
+      <div class="card-head"><h2>Realiseret pris efter byggeår <span class="src">· median kr/m² pr. årti (BBR) · tinglyste salg</span></h2></div>
+      <div id="chartSoldDecade" class="chart"></div>
+      <p class="chart-note" id="soldDecadeNote"></p>
+    </div>
+
+    <div class="card">
       <div class="card-head"><h2>S-togspræmie — pris pr. m² efter afstand til S-tog</h2></div>
       <div id="chartDist" class="chart"></div>
     </div>
@@ -298,7 +304,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 </body>
 </html>

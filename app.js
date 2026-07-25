@@ -337,6 +337,7 @@ function render() {
   renderMuniChart(f);
   renderSold(f);
   renderSoldTrend(f);
+  renderSoldDecade();
   renderDistChart(f);
   renderDaysChart(f);
   renderYearChart(f);
@@ -394,10 +395,11 @@ const kc = v => v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v);
 // fetch — the classic asking-optimism, biggest in slow, high-end condo markets.
 function soldForMuni(slug) {
   const per = S.sold && S.sold.byMuni[slug]; if (!per) return null;
-  if (S.type === 'condo' || S.type === 'villa') { const a = per[S.type]; return a ? { m2: a.medM2, n: a.n } : null; }
+  if (S.type === 'condo' || S.type === 'villa') { const a = per[S.type]; return a ? { m2: a.medM2, n: a.n, size: a.medSize, year: a.medYear } : null; }
   let num = 0, den = 0;                    // "all": pool the two types by sale count
-  for (const t of ['condo', 'villa']) { const a = per[t]; if (a) { num += a.medM2 * a.n; den += a.n; } }
-  return den ? { m2: Math.round(num / den), n: den } : null;
+  const a = per.condo && per.condo.n >= (per.villa ? per.villa.n : 0) ? per.condo : (per.villa || per.condo);
+  for (const t of ['condo', 'villa']) { const x = per[t]; if (x) { num += x.medM2 * x.n; den += x.n; } }
+  return den ? { m2: Math.round(num / den), n: den, size: a && a.medSize, year: a && a.medYear } : null;
 }
 function renderSold(f) {
   const box = $('#chartSold'), note = $('#soldNote'); if (!box) return;
@@ -459,7 +461,16 @@ function renderSold(f) {
     const gaps = rows.map(r => r.gap).sort((a, b) => a - b);
     const medGap = gaps[gaps.length >> 1];
     const ttxt = S.type === 'condo' ? 'ejerlejligheder' : S.type === 'villa' ? 'villaer' : 'alle boligtyper';
-    note.textContent = `Positiv forskel = udbudspriser ligger over de faktisk tinglyste salgspriser. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %. Kilde: Boliga/tinglysning.`;
+    let txt = `Positiv forskel = udbudspriser ligger over de faktisk tinglyste salgspriser. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %.`;
+    const mix = S.sold && S.sold.saleMix && S.sold.saleMix.pct;
+    if (mix) {
+      const parts = [];
+      if (mix.almindelig != null) parts.push(`${mix.almindelig} % almindelige`);
+      if (mix.familie != null) parts.push(`${mix.familie} % familiehandler`);
+      if (mix.auktion != null) parts.push(`${mix.auktion} % auktioner`);
+      if (parts.length) txt += ` Handelstyper (seneste 12 mdr.): ${parts.join(', ')}.`;
+    }
+    note.textContent = txt + ' Kilde: Boliga/tinglysning.';
   }
 }
 
@@ -497,6 +508,23 @@ function renderSoldTrend(f) {
   else { const step = Math.ceil((N - 1) / 6); idxs = []; for (let i = 0; i < N; i += step) idxs.push(i); if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1); }
   lineChart(mount, quarters, series, { legend: true, yfmt: kc, tfmt: m2, refs, xticks: idxs.map(i => [i, quarters[i]]), empty: 'Ingen realiserede salgsdata for det valgte område.' });
   if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = nuværende udbudsniveau. Kilde: Boliga/tinglysning.`;
+}
+
+// Realised kr/m² by BBR build-decade (corridor-wide), condo vs. villa — shows
+// how construction era maps to what homes actually fetch.
+function renderSoldDecade() {
+  const box = $('#chartSoldDecade'), note = $('#soldDecadeNote'); if (!box) return;
+  box.innerHTML = '';
+  const bd = S.sold && S.sold.byDecade;
+  if (!bd || (!bd.condo && !bd.villa)) { box.append(el('div', { class: 'loading' }, 'Ingen data.')); if (note) note.textContent = ''; return; }
+  const decades = [...new Set([...Object.keys(bd.condo || {}), ...Object.keys(bd.villa || {})].map(Number))].sort((a, b) => a - b);
+  const xlab = decades.map(d => d + 'er');
+  const series = [];
+  if (S.type !== 'villa' && bd.condo) series.push({ name: 'Ejerlejlighed', color: cssVar('--condo'), values: decades.map(d => bd.condo[d] ?? null) });
+  if (S.type !== 'condo' && bd.villa) series.push({ name: 'Villa/hus', color: cssVar('--villa'), values: decades.map(d => bd.villa[d] ?? null) });
+  if (!series.length) { box.append(el('div', { class: 'loading' }, 'Ingen data for den valgte boligtype.')); if (note) note.textContent = ''; return; }
+  lineChart(box, xlab, series, { legend: true, yfmt: kc, tfmt: m2, xticks: decades.map((_, i) => [i, xlab[i]]) });
+  if (note) note.textContent = 'Median realiseret kr/m² efter opførelsesårti (BBR), hele korridoren, seneste 12 mdr. Kilde: Boliga/tinglysning + BBR.';
 }
 
 // Realkreditrenter — effektiv rente på nyudstedte lån efter rentebinding
@@ -607,7 +635,9 @@ function renderMuniStats() {
     stat('S-togspræmie', s.premium != null ? (s.premium >= 0 ? '+' : '') + s.premium + ' %' : '–'),
     stat('Metropræmie', s.metroPremium != null ? (s.metroPremium >= 0 ? '+' : '') + s.metroPremium + ' %' : '–'),
     stat('Realiseret salg', sv ? m2(sv.m2) : '–'),
-    stat('Udbud vs. salg', soldGap != null ? (soldGap >= 0 ? '+' : '') + soldGap + ' %' : '–'));
+    stat('Udbud vs. salg', soldGap != null ? (soldGap >= 0 ? '+' : '') + soldGap + ' %' : '–'),
+    stat('Realiseret str.', sv && sv.size ? Math.round(sv.size) + ' m²' : '–'),
+    stat('Byggeår (solgt)', sv && sv.year ? String(sv.year) : '–'));
   box.append(el('div', { class: 'kstats-head' }, el('b', {}, name), el('span', { class: 'src' }, ' · ' + (S.type === 'all' ? 'alle boligtyper' : S.type === 'condo' ? 'ejerlejligheder' : 'villaer'))));
   box.append(wrap);
   // rooms + energy-label mix for the selected kommune

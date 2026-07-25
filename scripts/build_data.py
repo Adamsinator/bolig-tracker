@@ -888,18 +888,32 @@ def _quarter(iso):
     except Exception:
         return None
 
+def _saletype_bucket(raw):
+    s = str(raw or "").lower()
+    if "fam" in s:
+        return "familie"
+    if "auktion" in s or "auction" in s:
+        return "auktion"
+    if "alm" in s or "fri" in s or "regular" in s or "normal" in s or s in ("", "1"):
+        return "almindelig"
+    return "andet"
+
 def fetch_sold(listings):
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=SOLD_MONTHS * 31)
     recent_cut = now - timedelta(days=SOLD_RECENT_DAYS)
     date_min = cutoff.strftime("%Y-%m-%d")
     by_muni, series = {}, {}
+    by_decade = {"condo": {}, "villa": {}}   # BBR build-decade -> realised kr/m² (recent window)
+    saletypes = {}                           # market composition over the recent window
     logged_fields = False
     total = 0
-    def scan_group(code, ptype):
-        """Page one kommune×type; return (recent_prices, recent_m2, by_q, rows, failed)."""
+
+    def scan_group(code, ptype, t):
+        """Page one kommune×type. Also folds BBR build-year into by_decade and the
+        sale-type mix into saletypes (shared). Returns per-group aggregates."""
         nonlocal logged_fields
-        recent_prices, recent_m2, by_q, rows_seen, failed = [], [], {}, 0, False
+        rp, rm, rsize, ryear, by_q, rows_seen, failed = [], [], [], [], {}, 0, False
         for page in range(1, MAX_SOLD_PAGES + 1):
             data = _boliga_sold_page(code, ptype, date_min, page)
             if not data:
@@ -918,19 +932,29 @@ def fetch_sold(listings):
                     d = datetime.fromisoformat(sd[:10]).replace(tzinfo=timezone.utc)
                 except Exception:
                     d = None
-                stype = str(s.get("saleType") or s.get("SaleType") or "").lower()
-                if any(k in stype for k in ("fam", "auktion", "auction")):
-                    continue              # arm's-length sales only
+                recent = bool(d and d >= recent_cut)
+                bucket = _saletype_bucket(s.get("saleType") or s.get("SaleType"))
+                if recent:               # market composition counts every sale type
+                    saletypes[bucket] = saletypes.get(bucket, 0) + 1
+                if bucket in ("familie", "auktion"):
+                    continue             # price aggregates use arm's-length sales only
                 m2 = s.get("sqmPrice") or s.get("SqmPrice")
                 price = s.get("price") or s.get("Price")
+                yr = s.get("buildYear") or s.get("BuildYear")
+                sz = s.get("size") or s.get("Size")
                 q = _quarter(sd)
                 if m2 and m2 > 0:
                     if q:
                         by_q.setdefault(q, []).append(m2)
-                    if d and d >= recent_cut:
-                        recent_m2.append(m2)
+                    if recent:
+                        rm.append(m2)
                         if price and price > 0:
-                            recent_prices.append(price)
+                            rp.append(price)
+                        if sz and sz > 0:
+                            rsize.append(sz)
+                        if yr and 1800 < yr <= now.year:
+                            ryear.append(yr)
+                            by_decade[t].setdefault((int(yr) // 10) * 10, []).append(m2)
                 if d and d < cutoff:
                     stop = True
             rows_seen += len(results)
@@ -938,27 +962,29 @@ def fetch_sold(listings):
             if stop or (meta_total and page * 500 >= meta_total):
                 break
             time.sleep(0.25)
-        return recent_prices, recent_m2, by_q, rows_seen, failed
+        return rp, rm, rsize, ryear, by_q, rows_seen, failed
 
     for slug, (name, code) in MUNICIPALITIES.items():
         for t, ptype in BOLIGA_PTYPE.items():
-            recent_prices, recent_m2, by_q, rows_seen, failed = scan_group(code, ptype)
+            rp, rm, rsize, ryear, by_q, rows_seen, failed = scan_group(code, ptype, t)
             total += rows_seen
             if failed:                    # got nothing at all — one more try after a pause
                 print(f"  sold {name}/{t}: page-1 fetch failed, retrying once…", file=sys.stderr)
                 time.sleep(4)
-                recent_prices, recent_m2, by_q, rows_seen, failed = scan_group(code, ptype)
+                rp, rm, rsize, ryear, by_q, rows_seen, failed = scan_group(code, ptype, t)
                 total += rows_seen
-            if recent_m2:
+            if rm:
                 by_muni.setdefault(slug, {})[t] = {
-                    "n": len(recent_m2),
-                    "medPrice": round(median(recent_prices)) if recent_prices else None,
-                    "medM2": round(median(recent_m2)),
+                    "n": len(rm),
+                    "medPrice": round(median(rp)) if rp else None,
+                    "medM2": round(median(rm)),
+                    "medSize": round(median(rsize)) if rsize else None,
+                    "medYear": round(median(ryear)) if ryear else None,
                 }
             if by_q:
                 series.setdefault(slug, {})[t] = {q: round(median(v)) for q, v in by_q.items()}
-            flag = " (FETCH FAILED)" if failed else (" (no sales in window)" if not recent_m2 else "")
-            print(f"  sold {name:16} {t:6} {len(recent_m2)} recent sales{flag}")
+            flag = " (FETCH FAILED)" if failed else (" (no sales in window)" if not rm else "")
+            print(f"  sold {name:16} {t:6} {len(rm)} recent sales{flag}")
     if not by_muni:
         return None
     # asking-vs-sold gap: current median asking kr/m² vs recent median realised kr/m²
@@ -974,11 +1000,22 @@ def fetch_sold(listings):
                 am = median(a)
                 gap.setdefault(slug, {})[t] = {"askM2": round(am), "soldM2": agg["medM2"],
                                                "gapPct": round((am / agg["medM2"] - 1) * 100)}
+    # realised kr/m² by build-decade (BBR), per type — needs enough sales to be stable
+    decades = {}
+    for t in ("condo", "villa"):
+        dd = {str(dec): round(median(v)) for dec, v in by_decade[t].items() if len(v) >= 25}
+        if dd:
+            decades[t] = dd
+    tot_st = sum(saletypes.values())
+    sale_mix = {"counts": saletypes,
+                "pct": {k: round(v / tot_st * 100, 1) for k, v in saletypes.items()}} if tot_st else None
     quarters = sorted({q for per in series.values() for s in per.values() for q in s})
-    print(f"  sold: {total} rows scanned, {len(by_muni)} kommuner with recent sales")
+    print(f"  sold: {total} rows scanned, {len(by_muni)} kommuner; "
+          f"decades condo={len(decades.get('condo', {}))} villa={len(decades.get('villa', {}))}; "
+          f"sale-mix {saletypes}")
     return {"generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "windowMonths": SOLD_MONTHS,
             "recentDays": SOLD_RECENT_DAYS, "byMuni": by_muni, "askingVsSold": gap,
-            "quarters": quarters, "series": series}
+            "quarters": quarters, "series": series, "byDecade": decades, "saleMix": sale_mix}
 
 
 def main():
