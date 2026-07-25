@@ -906,6 +906,7 @@ def fetch_sold(listings):
     by_muni, series = {}, {}
     by_decade = {"condo": {}, "villa": {}}   # BBR build-decade -> realised kr/m² (recent window)
     saletypes = {}                           # market composition over the recent window
+    points = []                              # (lat, lon, m2p, type) for per-listing local comps
     logged_fields = False
     total = 0
 
@@ -955,6 +956,10 @@ def fetch_sold(listings):
                         if yr and 1800 < yr <= now.year:
                             ryear.append(yr)
                             by_decade[t].setdefault((int(yr) // 10) * 10, []).append(m2)
+                        la = s.get("latitude") or s.get("Latitude")
+                        lo = s.get("longitude") or s.get("Longitude")
+                        if la and lo:
+                            points.append((round(la, 5), round(lo, 5), m2, t))
                 if d and d < cutoff:
                     stop = True
             rows_seen += len(results)
@@ -1015,7 +1020,47 @@ def fetch_sold(listings):
           f"sale-mix {saletypes}")
     return {"generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "windowMonths": SOLD_MONTHS,
             "recentDays": SOLD_RECENT_DAYS, "byMuni": by_muni, "askingVsSold": gap,
-            "quarters": quarters, "series": series, "byDecade": decades, "saleMix": sale_mix}
+            "quarters": quarters, "series": series, "byDecade": decades, "saleMix": sale_mix,
+            "points": points}   # popped before writing sold.json — used for per-listing comps
+
+
+# Attach each listing's local realised benchmark: the median kr/m² of nearby
+# arm's-length sales (same type) from the last 12 months — a per-house comparable
+# drawn straight from tinglysning. Expands the radius until enough comps exist.
+COMP_CELL = 0.01                 # ~0.6–1.1 km grid cell for fast neighbour lookup
+COMP_RADII = [500, 1000, 2000]   # metres — first radius with >= COMP_MIN comps wins
+COMP_MIN = 6
+
+def annotate_comps(listings, points):
+    if not points:
+        return 0
+    grid = {}
+    for p in points:
+        grid.setdefault((int(p[0] / COMP_CELL), int(p[1] / COMP_CELL)), []).append(p)
+    done = 0
+    for r in listings:
+        la, lo, t = r.get("lat"), r.get("lon"), r.get("t")
+        if la is None or lo is None:
+            continue
+        ci, cj = int(la / COMP_CELL), int(lo / COMP_CELL)
+        cand = []
+        for di in range(-4, 5):        # ±4 cells covers the 2 km max radius in lon at 55°N
+            for dj in range(-4, 5):
+                for (pa, po, pm2, pt) in grid.get((ci + di, cj + dj), ()):
+                    if pt == t:
+                        cand.append((haversine_m(la, lo, pa, po), pm2))
+        if not cand:
+            continue
+        cand.sort(key=lambda x: x[0])
+        for radius in COMP_RADII:
+            near = [m2 for dist, m2 in cand if dist <= radius]
+            if len(near) >= COMP_MIN:
+                r["cmpM2"] = round(median(near))
+                r["cmpN"] = len(near)
+                r["cmpR"] = radius
+                done += 1
+                break
+    return done
 
 
 def main():
@@ -1054,6 +1099,12 @@ def main():
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
 
+    print("Fetching realised sold prices (Boliga / tinglysning)…")
+    sold = fetch_sold(listings)
+    if sold:
+        n_comp = annotate_comps(listings, sold.pop("points", []))
+        print(f"  comps: {n_comp}/{len(listings)} listings got a local realised benchmark")
+
     with open(os.path.join(data_dir, "listings.json"), "w", encoding="utf-8") as f:
         json.dump(listings, f, ensure_ascii=False, separators=(",", ":"))
 
@@ -1078,8 +1129,6 @@ def main():
         with open(os.path.join(data_dir, "bvc.json"), "w", encoding="utf-8") as f:
             json.dump(bvc, f, ensure_ascii=False, separators=(",", ":"))
 
-    print("Fetching realised sold prices (Boliga / tinglysning)…")
-    sold = fetch_sold(listings)
     if sold:
         with open(os.path.join(data_dir, "sold.json"), "w", encoding="utf-8") as f:
             json.dump(sold, f, ensure_ascii=False, separators=(",", ":"))

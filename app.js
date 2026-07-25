@@ -1477,8 +1477,8 @@ function fundScore(r) {
 
 /* ===== hedonic "fair value" model — kr/m² predicted from a home's features
    (size, rooms, year, floor, basement, lot, energy, distance-to-S-tog,
-   distance-to-metro, type, kommune) via ridge regression; residual = asking vs.
-   model. Built once. ===== */
+   distance-to-metro, local realised comps, type, kommune) via ridge regression;
+   residual = asking vs. model. Built once. ===== */
 let _fv = null;
 function fairValue() {
   if (_fv) return _fv;
@@ -1494,11 +1494,18 @@ function fairValue() {
   // a missing mst would be imputed as distance 0 (i.e. "at a metro"), the opposite
   // of the truth. annotate_metro fills mst for all rows or none, so this is all-or-nothing.
   const hasMetro = rows.some(r => r.mst != null);
+  // local realised benchmark (median kr/m² of nearby tinglyste sales, same type) —
+  // a strong micro-location signal. Impute a missing comp with the kommune-type
+  // realised median, then the overall comp median, so the feature is complete.
+  const hasComp = rows.some(r => r.cmpM2);
+  const overallComp = hasComp ? median(rows.map(r => r.cmpM2).filter(Boolean)) : null;
+  const compOf = r => r.cmpM2 || (S.sold && S.sold.byMuni[r.muni] && S.sold.byMuni[r.muni][r.t] && S.sold.byMuni[r.muni][r.t].medM2) || overallComp;
   const feat = r => {
     const f = [1, Math.log(r.a), (r.r || 0), (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
       (r.bsm > 0 ? 1 : 0), (Math.log((r.lot || 0) + 1) / 10), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
       (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
     if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
+    if (hasComp) f.push(Math.log(compOf(r)) / 12);
     for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
     return f;
   };
@@ -1609,6 +1616,12 @@ function card(r) {
       const under = fvr < 0;
       body.append(el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)}` },
         `${under ? '↓' : '↑'} ${Math.abs(fvr)} % ${under ? 'under' : 'over'} vurdering`));
+    }
+    // local realised benchmark — nearby tinglyste salg (same type, last 12 mo)
+    if (r.cmpM2 && r.m2p) {
+      const diff = Math.round((r.m2p / r.cmpM2 - 1) * 100);
+      body.append(el('div', { class: 'compline', title: `${r.cmpN} tinglyste salg inden for ${r.cmpR} m` },
+        `Realiseret i området: ${m2(r.cmpM2)} · udbudt ${diff >= 0 ? '+' : ''}${diff} %`));
     }
   }
   // if you saved this home and its asking price has changed since, flag it
