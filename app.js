@@ -970,12 +970,13 @@ function initMap() {
   MAP.L.labels = L.layerGroup().addTo(map);
   MAP.L.stations = L.layerGroup().addTo(map);
   MAP.L.transit = L.layerGroup().addTo(map);
+  MAP.L.transitLabels = L.layerGroup().addTo(map);
   MAP.L.geo = L.layerGroup().addTo(map);
   map.fitBounds(regionBounds(), { padding: [12, 12] });
   drawRail(); drawStations(); applyRailVisibility();
   drawTransit(); applyTransitVisibility();
   map.on('mouseout', hideTip);
-  map.on('zoomend', () => { resizeDots(); drawPriceLabels(); });
+  map.on('zoomend', () => { resizeDots(); drawPriceLabels(); drawTransitLabels(); });
   map.on('moveend', drawPriceLabels);
 
   // "reset view" control next to the zoom buttons
@@ -1027,11 +1028,28 @@ function drawTransit() {
     L.circleMarker([st.lat, st.lon], { renderer: MAP.renderer, radius: 3.2, color: METRO_COLORS[st.mode], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
       .addTo(MAP.L.transit).bindTooltip(st.name + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
   });
+  drawTransitLabels();
+}
+// Metro/letbane stations are dense (Cityring stops sit ~500 m apart), so print
+// every name only once zoomed in — otherwise the regional view is unreadable.
+// Hover tooltips cover the names at lower zoom.
+const TRANSIT_LABEL_ZOOM = 13;
+function drawTransitLabels() {
+  const lay = MAP.L.transitLabels; if (!lay) return;
+  lay.clearLayers();
+  const tr = S.meta && S.meta.transit;
+  if (!tr || !MAP.map || MAP.map.getZoom() < TRANSIT_LABEL_ZOOM) return;
+  (tr.stations || []).forEach(st => {
+    L.marker([st.lat, st.lon], { icon: L.divIcon({ className: 'st-name', html: st.name, iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
+  });
 }
 function applyTransitVisibility() {
   if (!MAP.map || !MAP.L.transit) return;
-  if (S.showMetro) { if (!MAP.map.hasLayer(MAP.L.transit)) MAP.L.transit.addTo(MAP.map); }
-  else if (MAP.map.hasLayer(MAP.L.transit)) MAP.map.removeLayer(MAP.L.transit);
+  [MAP.L.transit, MAP.L.transitLabels].forEach(lay => {
+    if (!lay) return;
+    if (S.showMetro) { if (!MAP.map.hasLayer(lay)) lay.addTo(MAP.map); }
+    else if (MAP.map.hasLayer(lay)) MAP.map.removeLayer(lay);
+  });
 }
 function drawRail() {
   MAP.L.rail.clearLayers();
