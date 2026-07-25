@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realkreditrenter — Bolig Tracker</title>
+<meta name="description" content="Aktuelle danske realkreditrenter efter rentebinding — variabel og fast rente, rentekurve, udvikling over tid og en ydelsesberegner. Kilde: Danmarks Nationalbank.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="logo.svg?v=14">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=14">
+<link rel="manifest" href="manifest.webmanifest?v=14">
+<meta name="theme-color" content="#1c5cb0">
+<link rel="stylesheet" href="styles.css?v=32">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="logo.svg?v=14" alt="Bolig Tracker" width="34" height="34">
+      <div>
+        <h1>Realkreditrenter</h1>
+        <p class="tagline">Effektiv rente på nye realkreditlån — efter rentebinding</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <a class="nav-link" href="index.html">← Bolig Tracker</a>
+      <div class="updated" id="asof"></div>
+      <button class="theme-toggle" id="themeToggle" title="Skift lyst/mørkt tema" aria-label="Skift tema"></button>
+    </div>
+  </header>
+
+  <section class="kpis" id="rateTiles" aria-label="Aktuelle renter" aria-busy="true">
+    <div class="skeleton-tile"></div><div class="skeleton-tile"></div><div class="skeleton-tile"></div><div class="skeleton-tile"></div>
+  </section>
+
+  <section class="grid">
+    <div class="card wide">
+      <div class="card-head"><h2>Renter efter rentebinding <span class="src" id="tableSrc"></span></h2></div>
+      <div id="rateTable" class="rate-table-wrap"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Rentekurve <span class="src">· effektiv rente pr. bindingsperiode</span></h2></div>
+      <div id="curveChart" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Renteudvikling <span class="src">· seneste ~12 år</span></h2></div>
+      <div id="histChart" class="chart"></div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Ydelsesberegner <span class="src">· månedlig ydelse ved aktuelle renter</span></h2></div>
+      <div class="calc-controls">
+        <label>Lånebeløb
+          <input type="number" id="calcAmount" value="3000000" min="100000" step="100000" inputmode="numeric">
+          <span class="unit">kr.</span>
+        </label>
+        <label>Løbetid
+          <select id="calcTerm">
+            <option value="30">30 år</option>
+            <option value="20">20 år</option>
+            <option value="15">15 år</option>
+            <option value="10">10 år</option>
+          </select>
+        </label>
+      </div>
+      <div id="calcTable" class="rate-table-wrap"></div>
+      <p class="chart-note">Annuitetsydelse før skat, beregnet af den effektive rente inkl. bidrag. Reelle tilbud afhænger af institut, belåningsgrad og kursskæring.</p>
+    </div>
+
+    <div class="card wide">
+      <p class="chart-note" id="bondNote"></p>
+    </div>
+  </section>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+</div>
+<script src="renter.js?v=32"></script>
+</body>
+</html>

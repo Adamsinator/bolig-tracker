@@ -4,6 +4,7 @@
 const CACHE = 'bolig-tracker-v32';
 const SHELL = [
   './', './index.html', './styles.css?v=32', './app.js?v=32',
+  './renter.html', './renter.js?v=32',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
   './logo.svg?v=14', './icon-192.png?v=14', './apple-touch-icon.png?v=14',
   './manifest.webmanifest?v=14',

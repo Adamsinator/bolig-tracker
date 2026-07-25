@@ -315,6 +315,29 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .lcard .hfbadge { align-self:flex-start; margin-top:7px; font-size:11px; font-weight:700; padding:2px 8px;
   border-radius:999px; color:var(--bad); background:color-mix(in srgb, var(--bad) 15%, transparent); }
 .lcard .compline { margin-top:6px; font-size:11.5px; color:var(--muted); }
+/* topbar nav link (→ renter subpage / ← back) */
+.nav-link { display:inline-flex; align-items:center; gap:4px; text-decoration:none; font-weight:650;
+  font-size:13px; color:var(--ink); background:var(--surface-2); border:1px solid var(--border);
+  border-radius:999px; padding:6px 13px; white-space:nowrap; }
+.nav-link:hover { background:var(--surface); border-color:var(--border-2); }
+
+/* realkredit rate + calculator tables (renter subpage) */
+.rate-table-wrap { overflow-x:auto; }
+.rate-table { width:100%; border-collapse:collapse; font-size:13.5px; }
+.rate-table th, .rate-table td { padding:9px 12px; text-align:right; border-bottom:1px solid var(--border-2); white-space:nowrap; }
+.rate-table th { color:var(--muted); font-weight:600; font-size:12.5px; }
+.rate-table th:first-child, .rate-table td:first-child { text-align:left; color:var(--ink-2); font-weight:600; }
+.rate-table td.num { font-variant-numeric:tabular-nums; }
+.rate-table td.strong { font-weight:750; color:var(--ink); }
+.rate-table td.up { color:var(--bad); font-weight:700; }
+.rate-table td.down { color:var(--good); font-weight:700; }
+.rate-table td.muted { color:var(--muted); }
+.calc-controls { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; margin-bottom:14px; }
+.calc-controls label { display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:var(--muted); font-weight:600; }
+.calc-controls input, .calc-controls select { font:inherit; padding:7px 10px; border:1px solid var(--border);
+  border-radius:9px; background:var(--surface-2); color:var(--ink); min-width:150px; }
+.calc-controls .unit { font-weight:600; color:var(--muted); }
+
 /* compare-two-kommuner table */
 .cmp-table { width:100%; max-width:640px; margin:0 auto; border-collapse:collapse; font-size:13.5px; }
 .cmp-table th, .cmp-table td { padding:9px 12px; text-align:right; border-bottom:1px solid var(--border-2); }
