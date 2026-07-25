@@ -944,7 +944,9 @@ def fetch_sold(listings):
                 yr = s.get("buildYear") or s.get("BuildYear")
                 sz = s.get("size") or s.get("Size")
                 q = _quarter(sd)
-                if m2 and m2 > 0:
+                # drop garbage kr/m² (tiny units, data errors) so a few bad records
+                # can't poison local comps or the medians
+                if m2 and 5000 <= m2 <= 200000:
                     if q:
                         by_q.setdefault(q, []).append(m2)
                     if recent:
