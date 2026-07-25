@@ -44,15 +44,16 @@ const PRICES = [1e6, 1.5e6, 2e6, 2.5e6, 3e6, 4e6, 5e6, 7.5e6, 10e6, 15e6, 20e6, 
 /* ===================== load ===================== */
 async function boot() {
   try {
-    const [meta, listings, geo, index, history, bvc] = await Promise.all([
+    const [meta, listings, geo, index, history, bvc, sold] = await Promise.all([
       fetch('data/meta.json').then(r => r.json()),
       fetch('data/listings.json').then(r => r.json()),
       fetch('data/geo.json').then(r => r.json()).catch(() => ({})),
       fetch('data/priceindex.json').then(r => r.json()).catch(() => null),
       fetch('data/history.json').then(r => r.json()).catch(() => ({ series: [] })),
       fetch('data/bvc.json').then(r => r.json()).catch(() => null),
+      fetch('data/sold.json').then(r => r.json()).catch(() => null),
     ]);
-    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc;
+    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold;
     meta.municipalities.forEach(m => S.munis.add(m.slug));
     S.favs = loadFavs();    // saved homes (device-local)
     decodeState();          // apply any filters carried in the URL
@@ -329,6 +330,7 @@ function render() {
   const f = filtered();
   renderKPIs(f);
   renderMuniChart(f);
+  renderSold(f);
   renderDistChart(f);
   renderDaysChart(f);
   renderYearChart(f);
@@ -379,6 +381,80 @@ const hideTip = () => { TT.hidden = true; };
 /* ===================== vertical column chart ===================== */
 // compact kroner: 86.600 -> "87k"
 const kc = v => v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v);
+
+// Asking (current listings) vs. realised (registered sales, last 12 mo) median
+// kr/m² per kommune. A positive gap = asking prices sit above what homes actually
+// fetch — the classic asking-optimism, biggest in slow, high-end condo markets.
+function soldForMuni(slug) {
+  const per = S.sold && S.sold.byMuni[slug]; if (!per) return null;
+  if (S.type === 'condo' || S.type === 'villa') { const a = per[S.type]; return a ? { m2: a.medM2, n: a.n } : null; }
+  let num = 0, den = 0;                    // "all": pool the two types by sale count
+  for (const t of ['condo', 'villa']) { const a = per[t]; if (a) { num += a.medM2 * a.n; den += a.n; } }
+  return den ? { m2: Math.round(num / den), n: den } : null;
+}
+function renderSold(f) {
+  const box = $('#chartSold'), note = $('#soldNote'); if (!box) return;
+  box.innerHTML = '';
+  if (!S.sold) { box.append(el('div', { class: 'loading' }, 'Realiserede salgspriser er ikke tilgængelige.')); if (note) note.textContent = ''; return; }
+  const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
+  const askByM = new Map();
+  f.forEach(r => { if (r.m2p) (askByM.get(r.muni) || askByM.set(r.muni, []).get(r.muni)).push(r.m2p); });
+  const rows = [];
+  for (const m of S.meta.municipalities) {
+    const ask = median((askByM.get(m.slug) || []).filter(Boolean));
+    const s = soldForMuni(m.slug);
+    if (ask && s && s.m2) rows.push({ label: names[m.slug] || m.slug, ask: Math.round(ask), sold: s.m2, n: s.n, gap: Math.round((ask / s.m2 - 1) * 100) });
+  }
+  rows.sort((a, b) => b.gap - a.gap);
+  if (!rows.length) { box.append(el('div', { class: 'loading' }, 'Ingen overlap mellem udbud og salg for det valgte filter.')); if (note) note.textContent = ''; return; }
+
+  const askC = cssVar('--ink-2'), soldC = cssVar('--condo');
+  const W = 760, H = 320, padL = 44, padR = 12, padT = 26, padB = 84;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...rows.flatMap(r => [r.ask, r.sold])) * 1.1 || 1;
+  const svg = svel('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
+  for (let g = 0; g <= 4; g++) {
+    const y = padT + plotH - g / 4 * plotH;
+    svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' }));
+    const t = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); t.textContent = kc(max * g / 4); svg.append(t);
+  }
+  // inline legend
+  [['Udbud', askC], ['Realiseret', soldC]].forEach(([lab, col], i) => {
+    const lx = padL + i * 110;
+    svg.append(svel('rect', { x: lx, y: 6, width: 11, height: 11, rx: 2, fill: col }));
+    const t = svel('text', { x: lx + 16, y: 15, class: 'axis-txt' }); t.textContent = lab; svg.append(t);
+  });
+  const bw = plotW / rows.length;
+  rows.forEach((r, i) => {
+    const gx = padL + i * bw, w = bw * .30;
+    const g = svel('g');
+    [[r.ask, askC, gx + bw * .16], [r.sold, soldC, gx + bw * .52]].forEach(([v, col, x]) => {
+      const h = v / max * plotH, y = padT + plotH - h;
+      g.append(svel('rect', { x, y, width: w, height: h, rx: 3, fill: col }));
+    });
+    // gap % label above the taller bar
+    const topY = padT + plotH - Math.max(r.ask, r.sold) / max * plotH - 5;
+    const gt = svel('text', { x: gx + bw / 2, y: topY, 'text-anchor': 'middle', class: 'bar-val' });
+    gt.textContent = (r.gap >= 0 ? '+' : '') + r.gap + '%'; g.append(gt);
+    g.addEventListener('mousemove', e => showTip(
+      `<div class="tt-title">${r.label}</div>` +
+      `<div class="tt-row"><span>Udbud nu</span><b>${m2(r.ask)}</b></div>` +
+      `<div class="tt-row"><span>Realiseret (12 mdr.)</span><b>${m2(r.sold)}</b></div>` +
+      `<div class="tt-row"><span>Forskel</span><b>${(r.gap >= 0 ? '+' : '') + r.gap} %</b></div>` +
+      `<div class="tt-row"><span>Antal salg</span><b>${r.n}</b></div>`, e.clientX, e.clientY));
+    g.addEventListener('mouseleave', hideTip);
+    svg.append(g);
+    const lx = gx + bw / 2, ly = H - padB + 15;
+    const lt = svel('text', { x: lx, y: ly, class: 'axis-txt', 'text-anchor': 'end', transform: `rotate(-40 ${lx} ${ly})` }); lt.textContent = r.label; svg.append(lt);
+  });
+  box.append(svg);
+  if (note) {
+    const gaps = rows.map(r => r.gap).sort((a, b) => a - b);
+    const medGap = gaps[gaps.length >> 1];
+    const ttxt = S.type === 'condo' ? 'ejerlejligheder' : S.type === 'villa' ? 'villaer' : 'alle boligtyper';
+    note.textContent = `Positiv forskel = udbudspriser ligger over de faktisk tinglyste salgspriser. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %. Kilde: Boliga/tinglysning.`;
+  }
+}
 // rows: [{label, value, n?, color?}].  opt: yfmt (y-axis + on-column label),
 // fmt (full value for tooltip), vlabel, tip(r) (custom tooltip), angle (x-label
 // rotation; 0 = horizontal), W, H, padB, headroom, topLabels.
@@ -440,6 +516,8 @@ function renderMuniStats() {
   if (!muniSel) { box.append(el('p', { class: 'chart-note' }, 'Klik på en kommune for at se gennemsnit for pris, størrelse, liggetid m.m.')); return; }
   const name = (S.meta.municipalities.find(m => m.slug === muniSel) || {}).name || muniSel;
   const s = kmStats(muniSel);
+  const sv = soldForMuni(muniSel);
+  const soldGap = (sv && s.medM2) ? Math.round((s.medM2 / sv.m2 - 1) * 100) : null;
   const stat = (label, val) => el('div', { class: 'kstat' }, el('div', { class: 'kstat-v' }, val), el('div', { class: 'kstat-l' }, label));
   const wrap = el('div', { class: 'kstats' },
     stat('Antal til salg', num(s.n)),
@@ -450,7 +528,9 @@ function renderMuniStats() {
     stat('Nær S-tog', s.nearPct != null ? s.nearPct + ' %' : '–'),
     stat('Prisnedsat', s.pctCut != null ? s.pctCut + ' %' : '–'),
     stat('S-togspræmie', s.premium != null ? (s.premium >= 0 ? '+' : '') + s.premium + ' %' : '–'),
-    stat('Metropræmie', s.metroPremium != null ? (s.metroPremium >= 0 ? '+' : '') + s.metroPremium + ' %' : '–'));
+    stat('Metropræmie', s.metroPremium != null ? (s.metroPremium >= 0 ? '+' : '') + s.metroPremium + ' %' : '–'),
+    stat('Realiseret salg', sv ? m2(sv.m2) : '–'),
+    stat('Udbud vs. salg', soldGap != null ? (soldGap >= 0 ? '+' : '') + soldGap + ' %' : '–'));
   box.append(el('div', { class: 'kstats-head' }, el('b', {}, name), el('span', { class: 'src' }, ' · ' + (S.type === 'all' ? 'alle boligtyper' : S.type === 'condo' ? 'ejerlejligheder' : 'villaer'))));
   box.append(wrap);
   // rooms + energy-label mix for the selected kommune
