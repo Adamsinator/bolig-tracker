@@ -373,26 +373,35 @@ def _dst_get(path):
         print(f"  mortgage: {path} failed ({ex})", file=sys.stderr)
         return None
 
+def _dump_dims(tid):
+    info = _dst_get(f"tableinfo/{tid}?format=JSON")
+    if not info:
+        return
+    print(f"  mortgage {tid}: {info.get('text')}")
+    for v in info.get("variables") or []:
+        vals = v.get("values") or []
+        vid = v.get("id")
+        if len(vals) <= 90:
+            print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: "
+                  + "; ".join(f"{x.get('id')}={x.get('text')}" for x in vals))
+        else:
+            print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: {vals[0].get('id')}..{vals[-1].get('id')}")
+
 def fetch_mortgage():
-    # DNRENTM/DNRENTD "Rentesatser og aktieindeks" carry Danish mortgage-bond
-    # yields (realkreditobligationer). Dump their dimension/category structure so
-    # we can pick the mortgage-rate series codes and build the real fetch.
-    for tid in ("DNRENTM", "MPK3"):
-        info = _dst_get(f"tableinfo/{tid}?format=JSON")
-        if not info:
-            continue
-        print(f"  mortgage {tid}: {info.get('text')}")
-        for v in info.get("variables") or []:
-            vals = v.get("values") or []
-            vid = v.get("id")
-            # log all categories for small dimensions (the instrument list we need);
-            # just the span for big ones like Tid
-            if len(vals) <= 90:
-                print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: "
-                      + "; ".join(f"{x.get('id')}={x.get('text')}" for x in vals))
-            else:
-                print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: "
-                      + f"{vals[0].get('id')}..{vals[-1].get('id')}")
+    # The classic rate tables discontinued their mortgage-bond series (~2012-14).
+    # The live effective mortgage rate by fixation lives in the MFI new/outstanding
+    # lending tables. Broaden the table listing to any "rente" table and probe the
+    # MFI realkredit tables' dimensions to locate the effective-rate measure.
+    tables = _dst_get("tables?format=JSON")
+    if tables:
+        hits = [t for t in tables if "rente" in str(t.get("text", "")).lower()
+                and any(k in str(t.get("text", "")).lower() for k in
+                        ("realkredit", "udlån", "udlaan", "husholdning", "mfi", "penge"))]
+        print(f"  mortgage: {len(hits)} lending-rate candidate tables")
+        for t in hits[:40]:
+            print(f"    {t.get('id')}: {t.get('text')}  [{t.get('updated', '')}]")
+    for tid in ("DNRNURI", "DNRUURI", "DNMUDL"):
+        _dump_dims(tid)
     return None   # discovery only — no data emitted yet
 
 
