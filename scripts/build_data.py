@@ -575,42 +575,53 @@ OVERPASS_MIRRORS = ["https://overpass.kumi.systems/api/interpreter",
                     "https://overpass-api.de/api/interpreter"]
 TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
 
-def fetch_transit():
-    s, w, n, e = TRANSIT_BBOX
-    q = (f'[out:json][timeout:90];'
-         f'(way["railway"="subway"]({s},{w},{n},{e});'
-         f'way["railway"="light_rail"]({s},{w},{n},{e}););out geom;'
-         f'(node["station"="subway"]({s},{w},{n},{e});'
-         f'node["station"="light_rail"]({s},{w},{n},{e}););out body;')
-    data = None
+def _overpass(query):
+    """Run one Overpass query against the mirrors; return parsed JSON or None.
+    Kept small so each concern (lines, stations) can fail independently."""
     for url in OVERPASS_MIRRORS:
         try:
-            req = urllib.request.Request(url, data=q.encode("utf-8"),
+            req = urllib.request.Request(url, data=query.encode("utf-8"),
                                          headers={"User-Agent": "bolig-tracker/1.0"})
             with urllib.request.urlopen(req, timeout=100) as r:
-                data = json.load(r)
-            break
+                return json.load(r)
         except Exception as ex:
             print(f"  transit fetch via {url} failed ({ex})", file=sys.stderr)
-    if not data:
-        return None
-    lines, stations, seen = [], [], set()
-    for el in data.get("elements", []):
+    return None
+
+def fetch_transit():
+    s, w, n, e = TRANSIT_BBOX
+    # Two independent queries. Stations power the near-metro distance and are
+    # cheap, so we fetch them separately from the heavier line geometry — a
+    # timeout on one no longer wipes out the other.
+    stations, seen = [], set()
+    sdata = _overpass(
+        f'[out:json][timeout:60];'
+        f'(node["station"="subway"]({s},{w},{n},{e});'
+        f'node["station"="light_rail"]({s},{w},{n},{e}););out body;')
+    for el in (sdata or {}).get("elements", []):
         tags = el.get("tags") or {}
-        et = el.get("type")
-        if et == "way" and tags.get("railway") in ("subway", "light_rail") and el.get("geometry"):
-            mode = "metro" if tags["railway"] == "subway" else "letbane"
-            seg = [[round(p["lat"], 5), round(p["lon"], 5)] for p in el["geometry"]]
-            if len(seg) > 1:
-                lines.append({"mode": mode, "ref": tags.get("ref") or "",
-                              "colour": tags.get("colour") or tags.get("color"), "segs": [seg]})
-        elif et == "node" and tags.get("name"):
+        if el.get("type") == "node" and tags.get("name"):
             key = (round(el["lat"], 4), round(el["lon"], 4))
             if key not in seen:
                 seen.add(key)
                 mode = "letbane" if tags.get("station") == "light_rail" else "metro"
                 stations.append({"name": tags["name"], "mode": mode,
                                  "lat": round(el["lat"], 5), "lon": round(el["lon"], 5)})
+
+    lines = []
+    ldata = _overpass(
+        f'[out:json][timeout:90];'
+        f'(way["railway"="subway"]({s},{w},{n},{e});'
+        f'way["railway"="light_rail"]({s},{w},{n},{e}););out geom;')
+    for el in (ldata or {}).get("elements", []):
+        tags = el.get("tags") or {}
+        if el.get("type") == "way" and tags.get("railway") in ("subway", "light_rail") and el.get("geometry"):
+            mode = "metro" if tags["railway"] == "subway" else "letbane"
+            seg = [[round(p["lat"], 5), round(p["lon"], 5)] for p in el["geometry"]]
+            if len(seg) > 1:
+                lines.append({"mode": mode, "ref": tags.get("ref") or "",
+                              "colour": tags.get("colour") or tags.get("color"), "segs": [seg]})
+
     if not lines and not stations:
         return None
     print(f"  transit: {len(lines)} line segments, {len(stations)} stations")
