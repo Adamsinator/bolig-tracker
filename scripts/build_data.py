@@ -374,25 +374,25 @@ def _dst_get(path):
         return None
 
 def fetch_mortgage():
-    tables = _dst_get("tables?format=JSON")
-    if not tables:
-        return None
-    kw = ("realkredit", "udlånsrente", "udlaansrente", "obligationsrente",
-          "effektiv rente", "mortgage", "rentesats")
-    hits = [t for t in tables if any(k in str(t.get("text", "")).lower() for k in kw)]
-    print(f"  mortgage: {len(tables)} DST tables, {len(hits)} rate/mortgage-related")
-    for t in hits[:40]:
-        print(f"    {t.get('id')}: {t.get('text')}  [{t.get('updated', '')}]")
-    # probe the dimension structure of the first realkredit lending-rate table
-    for t in hits:
-        txt = str(t.get("text", "")).lower()
-        if "realkredit" in txt and "rente" in txt:
-            info = _dst_get(f"tableinfo/{t.get('id')}?format=JSON")
-            if info:
-                vs = info.get("variables") or []
-                print(f"    DIMS {t.get('id')}: " + " | ".join(
-                    f"{v.get('id')}={[x.get('text') for x in (v.get('values') or [])][:6]}" for v in vs))
-            break
+    # DNRENTM/DNRENTD "Rentesatser og aktieindeks" carry Danish mortgage-bond
+    # yields (realkreditobligationer). Dump their dimension/category structure so
+    # we can pick the mortgage-rate series codes and build the real fetch.
+    for tid in ("DNRENTM", "MPK3"):
+        info = _dst_get(f"tableinfo/{tid}?format=JSON")
+        if not info:
+            continue
+        print(f"  mortgage {tid}: {info.get('text')}")
+        for v in info.get("variables") or []:
+            vals = v.get("values") or []
+            vid = v.get("id")
+            # log all categories for small dimensions (the instrument list we need);
+            # just the span for big ones like Tid
+            if len(vals) <= 90:
+                print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: "
+                      + "; ".join(f"{x.get('id')}={x.get('text')}" for x in vals))
+            else:
+                print(f"    var {vid} ({v.get('text')}) [{len(vals)}]: "
+                      + f"{vals[0].get('id')}..{vals[-1].get('id')}")
     return None   # discovery only — no data emitted yet
 
 
