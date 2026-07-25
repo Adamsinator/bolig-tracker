@@ -331,6 +331,7 @@ function render() {
   renderKPIs(f);
   renderMuniChart(f);
   renderSold(f);
+  renderSoldTrend(f);
   renderDistChart(f);
   renderDaysChart(f);
   renderYearChart(f);
@@ -454,6 +455,42 @@ function renderSold(f) {
     const ttxt = S.type === 'condo' ? 'ejerlejligheder' : S.type === 'villa' ? 'villaer' : 'alle boligtyper';
     note.textContent = `Positiv forskel = udbudspriser ligger over de faktisk tinglyste salgspriser. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %. Kilde: Boliga/tinglysning.`;
   }
+}
+
+// Realised kr/m² per quarter over the last ~2 years. Across several kommuner it's
+// a median of the per-kommune quarterly medians (exact when one kommune is
+// selected). A dashed line marks the current asking level so you can see where
+// today's listings sit relative to the realised trajectory.
+function renderSoldTrend(f) {
+  const mount = $('#chartSoldTrend'), note = $('#soldTrendNote'); if (!mount) return;
+  mount.innerHTML = '';
+  if (!S.sold || !S.sold.series) { mount.append(el('div', { class: 'loading' }, 'Realiserede salgspriser er ikke tilgængelige.')); if (note) note.textContent = ''; return; }
+  const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
+  const quarters = S.sold.quarters || [];
+  const sel = [...S.munis];
+  const scopeName = S.munis.size >= S.meta.municipalities.length ? 'hele korridoren'
+    : S.munis.size === 1 ? (names[sel[0]] || sel[0]) : `${S.munis.size} kommuner`;
+  const seriesFor = t => quarters.map(q => {
+    const vals = [];
+    for (const slug of sel) { const st = S.sold.series[slug] && S.sold.series[slug][t]; if (st && st[q] != null) vals.push(st[q]); }
+    return vals.length ? Math.round(median(vals)) : null;
+  });
+  // same median-of-kommune-medians aggregation as the realised series, so the
+  // dashed asking reference is apples-to-apples with the line (not pooled-by-listing,
+  // which would over-weight København and sit misleadingly high)
+  const askMed = t => {
+    const per = [];
+    for (const slug of sel) { const m = median(S.all.filter(r => r.t === t && r.muni === slug).map(r => r.m2p).filter(Boolean)); if (m) per.push(m); }
+    return per.length ? median(per) : null;
+  };
+  const series = [], refs = [];
+  if (S.type !== 'villa') { series.push({ name: 'Ejerlejlighed', color: cssVar('--condo'), values: seriesFor('condo') }); const a = askMed('condo'); if (a) refs.push({ value: Math.round(a), color: cssVar('--condo'), label: 'udbud nu' }); }
+  if (S.type !== 'condo') { series.push({ name: 'Villa/hus', color: cssVar('--villa'), values: seriesFor('villa') }); const a = askMed('villa'); if (a) refs.push({ value: Math.round(a), color: cssVar('--villa'), label: 'udbud nu' }); }
+  const N = quarters.length; let idxs;
+  if (N <= 8) idxs = quarters.map((_, i) => i);
+  else { const step = Math.ceil((N - 1) / 6); idxs = []; for (let i = 0; i < N; i += step) idxs.push(i); if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1); }
+  lineChart(mount, quarters, series, { legend: true, yfmt: kc, tfmt: m2, refs, xticks: idxs.map(i => [i, quarters[i]]), empty: 'Ingen realiserede salgsdata for det valgte område.' });
+  if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = nuværende udbudsniveau. Kilde: Boliga/tinglysning.`;
 }
 // rows: [{label, value, n?, color?}].  opt: yfmt (y-axis + on-column label),
 // fmt (full value for tooltip), vlabel, tip(r) (custom tooltip), angle (x-label
@@ -790,7 +827,8 @@ function lineChart(mount, xLabels, series, opt = {}) {
   const pts = xLabels.length;
   if (!pts || !series.some(s => s.values.some(v => v != null))) { mount.append(el('div', { class: 'loading' }, opt.empty || 'Ingen data endnu.')); return; }
   const W = 680, H = 260, padL = 46, padR = 14, padT = 12, padB = 30, plotW = W - padL - padR, plotH = H - padT - padB;
-  const all = series.flatMap(s => s.values).concat((opt.bands || []).flatMap(b => [...b.lo, ...b.hi])).filter(v => v != null);
+  const all = series.flatMap(s => s.values).concat((opt.bands || []).flatMap(b => [...b.lo, ...b.hi]))
+    .concat((opt.refs || []).map(r => r.value)).filter(v => v != null);
   let lo = Math.min(...all), hi = Math.max(...all);
   if (opt.zeroBase) lo = Math.min(lo, 0);
   const span = (hi - lo) || 1; lo -= span * .06; hi += span * .06;
@@ -824,6 +862,13 @@ function lineChart(mount, xLabels, series, opt = {}) {
     s.values.forEach((v, i) => { if (v == null) { started = false; return; } d += (started ? ' L' : ' M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1); started = true; });
     svg.append(svel('path', { d: d.trim(), fill: 'none', stroke: s.color, 'stroke-width': 2.4, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     if (pts === 1) { const i = 0, v = s.values[0]; if (v != null) svg.append(svel('circle', { cx: X(i), cy: Y(v), r: 4, fill: s.color })); }
+  });
+  // horizontal reference lines (e.g. current asking level vs. the realised trend)
+  (opt.refs || []).forEach(rf => {
+    if (rf.value == null) return;
+    const y = Y(rf.value);
+    svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, stroke: rf.color, 'stroke-width': 1.5, 'stroke-dasharray': '5 4', opacity: 0.8 }));
+    if (rf.label) { const t = svel('text', { x: W - padR - 2, y: y - 4, 'text-anchor': 'end', class: 'axis-txt' }); t.textContent = rf.label; t.setAttribute('fill', rf.color); svg.append(t); }
   });
   // hover crosshair
   const cross = svel('line', { y1: padT, y2: padT + plotH, class: 'crosshair', 'stroke-dasharray': '3 3' }); cross.style.display = 'none'; svg.append(cross);
