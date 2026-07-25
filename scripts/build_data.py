@@ -361,36 +361,37 @@ def fetch_dst_index():
 # step: list the rate-related tables and log their ids/dimensions from the CI
 # run, then we build the real fetch against the confirmed table. Purely additive.
 # ---------------------------------------------------------------------------
-NB_API = "https://nationalbanken.statistikbank.dk/api/v1"
+# Danmarks Statistik's statbank (known-reachable) also hosts Nationalbanken's
+# DN* interest-rate tables, so we discover through it rather than NB's own host.
+DST_API = "https://api.statbank.dk/v1"
 
-def _nb_get(path):
+def _dst_get(path):
     try:
-        with hard_timeout(40), urllib.request.urlopen(f"{NB_API}/{path}", timeout=35) as r:
+        with hard_timeout(40), urllib.request.urlopen(f"{DST_API}/{path}", timeout=35) as r:
             return json.load(r)
     except Exception as ex:
         print(f"  mortgage: {path} failed ({ex})", file=sys.stderr)
         return None
 
 def fetch_mortgage():
-    tables = _nb_get("tables?format=JSON")
+    tables = _dst_get("tables?format=JSON")
     if not tables:
         return None
-    kw = ("realkredit", "udlån", "udlaan", "rente", "obligation", "mortgage", "lending", "bond")
-    hits = [t for t in tables if any(k in (str(t.get("text", "")) + str(t.get("id", ""))).lower() for k in kw)]
-    print(f"  mortgage: {len(tables)} NB tables, {len(hits)} rate/bond-related")
-    for t in hits[:30]:
-        print(f"    NB {t.get('id')}: {t.get('text')}")
-    # probe dimensions of the most promising lending-rate tables so we learn the
-    # variable/category structure in the same run
+    kw = ("realkredit", "udlånsrente", "udlaansrente", "obligationsrente",
+          "effektiv rente", "mortgage", "rentesats")
+    hits = [t for t in tables if any(k in str(t.get("text", "")).lower() for k in kw)]
+    print(f"  mortgage: {len(tables)} DST tables, {len(hits)} rate/mortgage-related")
+    for t in hits[:40]:
+        print(f"    {t.get('id')}: {t.get('text')}  [{t.get('updated', '')}]")
+    # probe the dimension structure of the first realkredit lending-rate table
     for t in hits:
-        tid = str(t.get("id", ""))
         txt = str(t.get("text", "")).lower()
-        if any(k in txt for k in ("udlån", "udlaan", "effektiv")) and "rente" in txt:
-            info = _nb_get(f"tableinfo/{tid}?format=JSON")
+        if "realkredit" in txt and "rente" in txt:
+            info = _dst_get(f"tableinfo/{t.get('id')}?format=JSON")
             if info:
                 vs = info.get("variables") or []
-                print(f"    DIMS {tid}: " + " | ".join(
-                    f"{v.get('id') or v.get('text')}[{len(v.get('values', []))}]" for v in vs))
+                print(f"    DIMS {t.get('id')}: " + " | ".join(
+                    f"{v.get('id')}={[x.get('text') for x in (v.get('values') or [])][:6]}" for v in vs))
             break
     return None   # discovery only — no data emitted yet
 
