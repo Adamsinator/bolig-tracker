@@ -47,8 +47,14 @@
         <span>Søg adresse / område</span>
         <input type="search" id="search" placeholder="fx Holte, Østerbro, Strandvej, 2900…">
       </label>
-      <label class="filter check big">
-        <input type="checkbox" id="nearS"> Kun nær S-tog <span class="hint" id="nearSHint"></span>
+      <label class="filter">
+        <span>Nærhed til transport <span class="hint" id="nearSHint"></span></span>
+        <select id="nearTransit">
+          <option value="">Alle boliger</option>
+          <option value="s">Kun nær S-tog</option>
+          <option value="metro">Kun nær metro</option>
+          <option value="any">Kun nær offentlig transport</option>
+        </select>
       </label>
     </div>
 

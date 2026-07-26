@@ -52,9 +52,9 @@ async function boot() {
 function renderAll(mo) {
   const order = (mo.order || Object.keys(mo.series)).filter(l => mo.series[l]);
   const asof = mo.latest['Alle lån'] ? fmtYM(mo.latest['Alle lån'].month) : '';
-  $('#asof').textContent = asof ? 'Pr. ' + asof : '';
+  $('#asof').textContent = asof ? 'Pr. ' + asof + ' · månedstal' : '';
   $('#tableSrc').textContent = asof ? '· pr. ' + asof : '';
-  $('#bondNote').textContent = `${mo.unit}. Kilde: ${mo.source}. Renten er den gennemsnitlige effektive rente på nyudstedte realkreditlån efter oprindelig rentebinding — ikke et konkret kurstilbud. Kurser på de enkelte obligationsserier (fx 30-årig 4 %) kræver en børsdatakilde og kommer i en senere version.`;
+  $('#bondNote').textContent = `${mo.unit}. Kilde: ${mo.source}. Tallene er månedstal — Danmarks Statistik/Nationalbanken opgør renterne én gang om måneden, så nyeste punkt er sidst opgjorte måned. Renten er den gennemsnitlige effektive rente på nyudstedte realkreditlån efter oprindelig rentebinding — ikke et konkret kurstilbud. »Alle lån« er det vægtede gennemsnit på tværs af alle rentebindinger. Kurser på de enkelte obligationsserier (fx 30-årig 4 %) kræver en børsdatakilde og kommer i en senere version.`;
 
   renderTiles(mo, order);
   renderTable(mo, order);
@@ -131,7 +131,7 @@ function renderTiles(mo, order) {
     box.append(el('div', { class: 'kpi' },
       el('div', { class: 'k-label' }, lab),
       el('div', { class: 'k-val' }, pct(l.rate)),
-      el('div', { class: 'k-sub' }, 'effektiv rente inkl. bidrag')));
+      el('div', { class: 'k-sub' }, lab === 'Alle lån' ? 'vægtet gennemsnit — alle nye lån' : 'effektiv rente inkl. bidrag')));
   });
 }
 
@@ -149,7 +149,10 @@ function renderTable(mo, order) {
     const chg = (typeof prev === 'number') ? Math.round((l.rate - prev) * 100) / 100 : null;
     const chgCell = chg == null ? el('td', { class: 'muted' }, '–')
       : el('td', { class: chg > 0 ? 'up' : chg < 0 ? 'down' : 'muted' }, (chg > 0 ? '+' : '') + chg.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-    tb.append(el('tr', {}, el('td', {}, lab), el('td', { class: 'num strong' }, pct(l.rate)), chgCell, el('td', { class: 'muted' }, fmtYM(l.month))));
+    const labCell = lab === 'Alle lån'
+      ? el('td', {}, lab, el('span', { class: 'th-hint' }, ' · vægtet gns.'))
+      : el('td', {}, lab);
+    tb.append(el('tr', { class: lab === 'Alle lån' ? 'row-avg' : '' }, labCell, el('td', { class: 'num strong' }, pct(l.rate)), chgCell, el('td', { class: 'muted' }, fmtYM(l.month))));
   });
   t.append(tb); wrap.append(t);
 }

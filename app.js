@@ -3,7 +3,7 @@
 /* ===================== state & helpers ===================== */
 const S = {
   meta: null, geo: null, index: null, history: null,
-  all: [], type: 'all', munis: new Set(), nearS: false,
+  all: [], type: 'all', munis: new Set(), nearTransit: null,
   priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null,
   lotMin: null, floorMin: null, yearMin: null, daysMax: null, energyMin: null,
   hasBasement: false, hasElevator: false, hasBalcony: false,
@@ -78,7 +78,7 @@ function initUI() {
   const upd = new Date(S.meta.generatedAt);
   $('#updated').textContent = 'Opdateret ' + upd.toLocaleDateString('da-DK', { day: 'numeric', month: 'long', year: 'numeric' }) +
     ' · ' + S.meta.total.toLocaleString('da-DK') + ' boliger';
-  $('#nearSHint').textContent = '(≤ ' + S.meta.strainNearM + ' m)';
+  $('#nearSHint').textContent = '(S-tog ≤ ' + S.meta.strainNearM + ' m · metro ≤ ' + METRO_NEAR_M + ' m)';
 
   // price selects
   const fill = (id, label) => { const s = $(id); PRICES.forEach(p => s.append(el('option', { value: p }, krM(p).replace(' kr', '')))); };
@@ -125,7 +125,7 @@ function initUI() {
   on('#floorMin', 'floorMin', 1); on('#yearMin', 'yearMin', 1); on('#daysMax', 'daysMax', 1);
   on('#energyMin', 'energyMin'); on('#hasBasement', 'hasBasement'); on('#hasElevator', 'hasElevator');
   on('#hasBalcony', 'hasBalcony'); on('#colorBy', 'colorBy'); on('#sort', 'sort');
-  on('#nearS', 'nearS'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew'); on('#hideHf', 'hideHf');
+  on('#nearTransit', 'nearTransit'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew'); on('#hideHf', 'hideHf');
   $('#showRail').addEventListener('change', e => { S.showRail = e.target.checked; applyRailVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
   $('#showMetro').addEventListener('change', e => { S.showMetro = e.target.checked; applyTransitVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
   $('#search').addEventListener('input', e => {
@@ -204,12 +204,14 @@ function activeFilterCount() {
   let n = 0;
   ['priceMin', 'priceMax', 'rooms', 'areaMin', 'areaMax', 'lotMin', 'floorMin', 'yearMin', 'daysMax', 'energyMin'].forEach(k => { if (S[k]) n++; });
   ['hasBasement', 'hasElevator', 'hasBalcony', 'onlyCut', 'onlyNew', 'hideHf'].forEach(k => { if (S[k]) n++; });
+  if (S.nearTransit) n++;
   return n;
 }
 
 /* ---- shareable state in the URL (so a filtered view can be bookmarked) ---- */
 const NUM_KEYS = ['priceMin', 'priceMax', 'rooms', 'areaMin', 'areaMax', 'lotMin', 'floorMin', 'yearMin', 'daysMax'];
-const CHECK_KEYS = ['hasBasement', 'hasElevator', 'hasBalcony', 'nearS', 'onlyCut', 'onlyNew', 'hideHf'];
+const CHECK_KEYS = ['hasBasement', 'hasElevator', 'hasBalcony', 'onlyCut', 'onlyNew', 'hideHf'];
+const TRANSIT_VALS = ['s', 'metro', 'any'];
 function decodeState() {
   const p = new URLSearchParams(location.search);
   if (![...p.keys()].length) return;
@@ -222,6 +224,7 @@ function decodeState() {
   NUM_KEYS.forEach(k => { const v = p.get(k); if (v != null && v !== '' && !isNaN(+v)) S[k] = +v; });
   if (p.get('energyMin')) S.energyMin = p.get('energyMin');
   CHECK_KEYS.forEach(k => { if (p.get(k) === '1') S[k] = true; });
+  if (TRANSIT_VALS.includes(p.get('nearTransit'))) S.nearTransit = p.get('nearTransit');
   if (p.get('sort')) S.sort = p.get('sort');
   if (p.get('colorBy')) S.colorBy = p.get('colorBy');
 }
@@ -234,6 +237,7 @@ function encodeState() {
   NUM_KEYS.forEach(k => { if (S[k] != null) p.set(k, S[k]); });
   if (S.energyMin) p.set('energyMin', S.energyMin);
   CHECK_KEYS.forEach(k => { if (S[k]) p.set(k, '1'); });
+  if (S.nearTransit) p.set('nearTransit', S.nearTransit);
   if (S.sort !== 'd') p.set('sort', S.sort);
   if (S.colorBy !== 'm2p') p.set('colorBy', S.colorBy);
   const qs = p.toString();
@@ -243,6 +247,7 @@ function syncControlsFromState() {
   [['#priceMin', 'priceMin'], ['#priceMax', 'priceMax'], ['#rooms', 'rooms'], ['#areaMin', 'areaMin'], ['#areaMax', 'areaMax'], ['#lotMin', 'lotMin'], ['#floorMin', 'floorMin'], ['#yearMin', 'yearMin'], ['#daysMax', 'daysMax'], ['#energyMin', 'energyMin'], ['#sort', 'sort'], ['#colorBy', 'colorBy']]
     .forEach(([id, k]) => { if (S[k] != null) $(id).value = S[k]; });
   CHECK_KEYS.forEach(k => { const elc = $('#' + k); if (elc) elc.checked = !!S[k]; });
+  { const nt = $('#nearTransit'); if (nt) nt.value = S.nearTransit || ''; }
   $('#search').value = S.search || '';
   [...$('#typeSeg').children].forEach(b => b.classList.toggle('active', b.dataset.type === S.type));
   if (activeFilterCount()) $('#moreFilters').open = true;
@@ -298,7 +303,9 @@ function filtered() {
   return S.all.filter(r => {
     if (S.type !== 'all' && r.t !== S.type) return false;
     if (!S.munis.has(r.muni)) return false;
-    if (S.nearS && !r.near) return false;
+    if (S.nearTransit === 's' && !r.near) return false;
+    if (S.nearTransit === 'metro' && !nearMetro(r)) return false;
+    if (S.nearTransit === 'any' && !(r.near || nearMetro(r))) return false;
     if (S.priceMin && r.p < S.priceMin) return false;
     if (S.priceMax && r.p > S.priceMax) return false;
     if (S.rooms && (r.r || 0) < S.rooms) return false;
@@ -360,8 +367,9 @@ function renderKPIs(f) {
   const prices = f.map(r => r.p).filter(Boolean);
   const m2p = f.map(r => r.m2p).filter(Boolean);
   const days = f.map(r => r.d).filter(v => v != null);
-  const cutPct = f.length ? Math.round(f.filter(r => r.chg < 0).length / f.length * 100) : 0;
-  const nearPct = f.length ? Math.round(f.filter(r => r.near).length / f.length * 100) : 0;
+  const cutRows = f.filter(r => r.chg < 0);
+  const cutPct = f.length ? Math.round(cutRows.length / f.length * 100) : 0;
+  const cutMed = cutRows.length ? median(cutRows.map(r => Math.abs(r.chg))) : null;
   const typeLabel = S.type === 'all' ? 'ejerl. + villaer' : (S.type === 'condo' ? 'ejerlejligheder' : 'villaer');
   const kpis = [
     { label: 'Boliger til salg', val: f.length.toLocaleString('da-DK'), sub: typeLabel },
@@ -369,7 +377,8 @@ function renderKPIs(f) {
       sub: prices.length ? `Midterste 50 %: ${krM(quantile(prices, .25))} – ${krM(quantile(prices, .75))} · dyreste ${krM(Math.max(...prices))}` : '' },
     { label: 'Median pris/m²', val: m2(median(m2p)), sub: 'typisk kvadratmeterpris' },
     { label: 'Median liggetid', val: median(days) != null ? Math.round(median(days)) + ' <small>dage</small>' : '–', sub: 'til salg på boligsiden', html: true },
-    { label: 'Med prisnedsættelse', val: cutPct + ' <small>%</small>', sub: nearPct + ' % ligger nær S-tog', html: true },
+    { label: 'Andel med prisnedslag', val: cutPct + ' <small>%</small>',
+      sub: cutMed != null ? `af boligerne — typisk ${cutMed.toLocaleString('da-DK', { maximumFractionDigits: 1 })} % under første pris` : 'af boligerne har sat prisen ned', html: true },
   ];
   const box = $('#kpis'); box.innerHTML = ''; box.removeAttribute('aria-busy');
   kpis.forEach(k => box.append(el('div', { class: 'kpi' },
@@ -781,7 +790,7 @@ function renderScatter(f) {
     + (stats.length > 1
       ? 'Den samlede sky kan se flad ud, selvom hver boligtype for sig stiger: store boliger er oftere villaer, som har lavere m²-pris end lejligheder (sammensætningseffekt). '
       : '')
-    + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} boliger vises ikke: dem over ${Math.round(xd1)} m² eller med en m²-pris i de yderste ~2 % (holdt uden for skalaen, så skyen ikke klumper mod akserne). De tælles stadig med i medianlinjen.` : '')));
+    + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} af ${pts.length.toLocaleString('da-DK')} boliger vises ikke i skyen: dem uden for ${Math.round(xd0)}–${Math.round(xd1)} m² (yderste ~1 % i hver ende af størrelsen) eller uden for ${Math.round(yd0 / 1000)}k–${Math.round(yd1 / 1000)}k kr/m² (yderste ~2 % i hver ende af m²-prisen). De holdes uden for skalaen, så skyen ikke klumper mod akserne — men de tælles stadig med i medianlinjerne og i alle nøgletal ovenfor.` : '')));
 }
 
 /* ============ outliers: robust z-score of kr/m² within kommune + type ============ */
@@ -1148,6 +1157,7 @@ function initMap() {
   MAP.L.listings = L.layerGroup().addTo(map);
   MAP.L.labels = L.layerGroup().addTo(map);
   MAP.L.stations = L.layerGroup().addTo(map);
+  MAP.L.stationLabels = L.layerGroup().addTo(map);
   MAP.L.transit = L.layerGroup().addTo(map);
   MAP.L.transitLabels = L.layerGroup().addTo(map);
   MAP.L.geo = L.layerGroup().addTo(map);
@@ -1155,7 +1165,7 @@ function initMap() {
   drawRail(); drawStations(); applyRailVisibility();
   drawTransit(); applyTransitVisibility();
   map.on('mouseout', hideTip);
-  map.on('zoomend', () => { resizeDots(); drawPriceLabels(); drawTransitLabels(); });
+  map.on('zoomend', () => { resizeDots(); drawPriceLabels(); drawTransitLabels(); drawStationLabels(); });
   map.on('moveend', drawPriceLabels);
 
   // "reset view" control next to the zoom buttons
@@ -1186,25 +1196,68 @@ function setTiles() {
 // Show or hide the S-train / Kystbane lines and stations together.
 function applyRailVisibility() {
   if (!MAP.map) return;
-  [MAP.L.rail, MAP.L.stations].forEach(layer => {
+  [MAP.L.rail, MAP.L.stations, MAP.L.stationLabels].forEach(layer => {
     if (!layer) return;
     if (S.showRail) { if (!MAP.map.hasLayer(layer)) layer.addTo(MAP.map); }
     else if (MAP.map.hasLayer(layer)) MAP.map.removeLayer(layer);
   });
 }
-// Metro + Ring 3 letbane overlay (data/meta.json → transit). Dormant until the
-// pipeline populates it; drawn as coloured line segments + station dots.
-const METRO_COLORS = { metro: '#e6212a', letbane: '#00a3c7' };
+// Metro + Ring 3 letbane overlay (data/meta.json → transit). The raw OSM data is
+// a soup of ~1000 way-fragments: many metro ways carry no colour tag (they'd
+// default to red and bleed over the yellow/green lines) and the coloured lines
+// share track (M1+M2 on Vanløse–Christianshavn, M3+M4 on the shared stretch),
+// so overlapping segments overpaint each other. We fix both here:
+//   • canonical colour per line ref (M1 green, M2 yellow, M3 red, M4 blue),
+//   • unknown/untagged ways drawn thin & grey *underneath* (never red),
+//   • each line nudged sideways by a small perpendicular offset so shared
+//     corridors render as parallel lines instead of one colour hiding another.
+const METRO_COLORS = { metro: '#6b7280', letbane: '#00a3c7' };
+const METRO_REFS = { M1: '#007756', M2: '#f5c400', M3: '#e2231a', M4: '#0098d4' };
+const METRO_REF_ORDER = ['M1', 'M2', 'M3', 'M4'];
+// OSM tags the same line inconsistently — some ways carry ref=M3, others only a
+// colour. Map the colours we see in the data back to a ref so every fragment of a
+// line gets the same colour AND the same sideways offset (otherwise one line
+// draws as two parallel strands).
+const METRO_COL_REF = { '#007756': 'M1', '#ffcc00': 'M2', '#f5c400': 'M2', '#ff0a0a': 'M3', '#e2231a': 'M3', '#e2221a': 'M3', '#009cd3': 'M4', '#0098d4': 'M4' };
+const METRO_OFFSET_M = 16;   // sideways spacing between parallel metro lines (metres)
+// shift a run of [lat,lon] points sideways (perpendicular to the segment's
+// overall bearing) by `metres`, so co-located lines separate on the map
+function offsetLatLngs(pts, metres) {
+  if (!metres || pts.length < 2) return pts;
+  const [aLat, aLon] = pts[0], [bLat, bLon] = pts[pts.length - 1];
+  const latR = (aLat + bLat) / 2 * Math.PI / 180;
+  const mPerLon = 111320 * Math.cos(latR) || 1, mPerLat = 110540;
+  const dx = (bLon - aLon) * mPerLon, dy = (bLat - aLat) * mPerLat;
+  const len = Math.hypot(dx, dy) || 1;
+  const dLat = (-dx / len * metres) / mPerLat;     // perpendicular = rotate 90°
+  const dLon = (dy / len * metres) / mPerLon;
+  return pts.map(([la, lo]) => [la + dLat, lo + dLon]);
+}
 function drawTransit() {
   if (!MAP.L.transit) return;
   MAP.L.transit.clearLayers();
   const tr = S.meta && S.meta.transit; if (!tr) return;
+  const mid = (METRO_REF_ORDER.length - 1) / 2;
+  const known = [], unknown = [];   // draw unknown first (underneath), known on top
   (tr.lines || []).forEach(ln => {
-    const c = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour) : METRO_COLORS[ln.mode];
-    (ln.segs || []).forEach(seg => L.polyline(seg, { color: c, weight: 3, opacity: 0.85, lineCap: 'round', lineJoin: 'round', dashArray: ln.mode === 'letbane' ? '2 6' : null }).addTo(MAP.L.transit));
+    const tagCol = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour).toLowerCase() : null;
+    // resolve to a canonical line ref via the ref tag first, then the colour tag
+    const ref = (ln.ref && METRO_REFS[ln.ref]) ? ln.ref : (tagCol && METRO_COL_REF[tagCol]) || null;
+    const refCol = ref && METRO_REFS[ref];
+    const idx = ref ? METRO_REF_ORDER.indexOf(ref) : -1;
+    const off = idx >= 0 ? (idx - mid) * METRO_OFFSET_M : 0;
+    // only lines that resolve to a real metro ref (M1–M4) or the letbane get a
+    // colour + offset; unrecognised/untagged ways go grey underneath so stray
+    // OSM colours don't paint phantom lines through the centre
+    const isKnown = ln.mode === 'letbane' || !!refCol;
+    const c = ln.mode === 'letbane' ? METRO_COLORS.letbane : (refCol || METRO_COLORS.metro);
+    (ln.segs || []).forEach(seg => (isKnown ? known : unknown).push({ seg: offsetLatLngs(seg, off), c, mode: ln.mode, known: isKnown }));
   });
+  const add = o => L.polyline(o.seg, { color: o.c, weight: o.known ? 1.6 : 1.1, opacity: o.known ? 0.9 : 0.5,
+    lineCap: 'round', lineJoin: 'round', dashArray: o.mode === 'letbane' ? '2 6' : null }).addTo(MAP.L.transit);
+  unknown.forEach(add); known.forEach(add);
   (tr.stations || []).forEach(st => {
-    L.circleMarker([st.lat, st.lon], { renderer: MAP.renderer, radius: 3.2, color: METRO_COLORS[st.mode], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
+    L.circleMarker([st.lat, st.lon], { renderer: MAP.renderer, radius: 3, color: '#4b5563', weight: 1.6, fillColor: cssVar('--surface'), fillOpacity: 1 })
       .addTo(MAP.L.transit).bindTooltip(esc(st.name) + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
   });
   drawTransitLabels();
@@ -1236,7 +1289,7 @@ function drawRail() {
   const col = LINE_COLORS();
   S.meta.lines.forEach(Ln => {
     const pts = Ln.stops.map(n => stMap[n]).filter(Boolean).map(s => [s.lat, s.lon]);
-    L.polyline(pts, { color: col[Ln.corridor], weight: 4, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: Ln.corridor === 'kystbanen' ? '3 8' : null }).addTo(MAP.L.rail);
+    L.polyline(pts, { color: col[Ln.corridor], weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: Ln.corridor === 'kystbanen' ? '3 7' : null }).addTo(MAP.L.rail);
   });
 }
 function drawStations() {
@@ -1245,8 +1298,19 @@ function drawStations() {
   S.meta.stations.forEach(s => {
     L.circleMarker([s.lat, s.lon], { renderer: MAP.renderer, radius: s.strain ? 4 : 3, color: col[s.corridor], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
       .addTo(MAP.L.stations).bindTooltip(esc(s.name) + (s.strain ? '' : ' · Kystbanen'), { direction: 'top', offset: [0, -4] });
-    if (BIG_STATIONS.has(s.name))
-      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: esc(s.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(MAP.L.stations);
+  });
+  drawStationLabels();
+}
+// Major S-train hubs are always labelled; the rest appear once zoomed in — the
+// same zoom-based behaviour as the metro station names.
+function drawStationLabels() {
+  const lay = MAP.L.stationLabels; if (!lay) return;
+  lay.clearLayers();
+  if (!S.meta || !MAP.map) return;
+  const showAll = MAP.map.getZoom() >= TRANSIT_LABEL_ZOOM;
+  S.meta.stations.forEach(s => {
+    if (!showAll && !BIG_STATIONS.has(s.name)) return;
+    L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: esc(s.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
   });
 }
 function drawBoundaries() {
@@ -1421,9 +1485,17 @@ function renderMapLegend(colorBy, f, lineColors) {
   }
   if (S.showRail) S.meta.lines.forEach(L => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line' + (L.corridor === 'kystbanen' ? ' dashed' : ''), style: `border-top-color:${lineColors[L.corridor]}` }), L.label)));
   if (S.showMetro && S.meta.transit) {
-    const modes = new Set((S.meta.transit.lines || []).map(l => l.mode));
-    if (modes.has('metro')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
-    if (modes.has('letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
+    const lines = S.meta.transit.lines || [];
+    const lineRef = l => {
+      if (l.ref && METRO_REFS[l.ref]) return l.ref;
+      const tc = l.colour && /^#?[0-9a-fA-F]{6}$/.test(l.colour) ? (l.colour[0] === '#' ? l.colour : '#' + l.colour).toLowerCase() : null;
+      return tc && METRO_COL_REF[tc] || null;
+    };
+    const refs = METRO_REF_ORDER.filter(r => lines.some(l => l.mode !== 'letbane' && lineRef(l) === r));
+    refs.forEach(r => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_REFS[r]}` }), r)));
+    if (lines.some(l => l.mode === 'metro' && !METRO_REF_ORDER.includes(l.ref)) && !refs.length)
+      box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
+    if (lines.some(l => l.mode === 'letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
   }
 }
 function legItem(color, text) { return el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${color}` }), text); }
