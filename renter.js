@@ -54,7 +54,7 @@ function renderAll(mo) {
   const asof = mo.latest['Alle lån'] ? fmtYM(mo.latest['Alle lån'].month) : '';
   $('#asof').textContent = asof ? 'Pr. ' + asof + ' · månedstal' : '';
   $('#tableSrc').textContent = asof ? '· pr. ' + asof : '';
-  $('#bondNote').textContent = `${mo.unit}. Kilde: ${mo.source}. Tallene er månedstal — Danmarks Statistik/Nationalbanken opgør renterne én gang om måneden, så nyeste punkt er sidst opgjorte måned. Renten er den gennemsnitlige effektive rente på nyudstedte realkreditlån efter oprindelig rentebinding — ikke et konkret kurstilbud. »Alle lån« er det vægtede gennemsnit på tværs af alle rentebindinger. Kurser på de enkelte obligationsserier (fx 30-årig 4 %) kræver en børsdatakilde og kommer i en senere version.`;
+  $('#bondNote').textContent = `${mo.unit}. Kilde: ${mo.source}. Tallene er månedstal — Danmarks Statistik/Nationalbanken opgør renterne én gang om måneden, så nyeste punkt er sidst opgjorte måned. Renten er den gennemsnitlige effektive rente på nyudstedte realkreditlån efter oprindelig rentebinding — ikke et konkret kurstilbud. »Fast (>10 år)« dækker lån med renten bundet i over 10 år og er reelt det 30-årige fastforrentede realkreditlån — det almindelige fastrenteprodukt. »Alle lån« er det vægtede gennemsnit på tværs af alle rentebindinger. Renterne er opgjort på tværs af alle institutter; den 30-årige obligationskurs er stort set ens hos Totalkredit, Realkredit Danmark, Nordea Kredit og Jyske Realkredit — det er primært bidragssatsen, der adskiller dem. Konkrete kurser pr. obligationsserie kræver en børsdatakilde.`;
 
   renderTiles(mo, order);
   renderTable(mo, order);
@@ -137,12 +137,14 @@ function renderTiles(mo, order) {
   const box = $('#rateTiles'); box.innerHTML = ''; box.removeAttribute('aria-busy');
   const want = ['Variabel (≤3 mdr.)', '1–5 år', 'Fast (>10 år)', 'Alle lån'];
   const labs = order.filter(l => want.includes(l));
+  const subFor = lab => lab === 'Alle lån' ? 'vægtet gennemsnit — alle nye lån'
+    : lab === 'Fast (>10 år)' ? '30-årig fast rente' : 'effektiv rente inkl. bidrag';
   (labs.length ? labs : order.slice(0, 4)).forEach(lab => {
     const l = mo.latest[lab]; if (!l) return;
     box.append(el('div', { class: 'kpi' },
-      el('div', { class: 'k-label' }, lab),
+      el('div', { class: 'k-label' }, lab === 'Fast (>10 år)' ? 'Fast (30 år)' : lab),
       el('div', { class: 'k-val' }, pct(l.rate)),
-      el('div', { class: 'k-sub' }, lab === 'Alle lån' ? 'vægtet gennemsnit — alle nye lån' : 'effektiv rente inkl. bidrag')));
+      el('div', { class: 'k-sub' }, subFor(lab))));
   });
 }
 
@@ -160,9 +162,8 @@ function renderTable(mo, order) {
     const chg = (typeof prev === 'number') ? Math.round((l.rate - prev) * 100) / 100 : null;
     const chgCell = chg == null ? el('td', { class: 'muted' }, '–')
       : el('td', { class: chg > 0 ? 'up' : chg < 0 ? 'down' : 'muted' }, (chg > 0 ? '+' : '') + chg.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-    const labCell = lab === 'Alle lån'
-      ? el('td', {}, lab, el('span', { class: 'th-hint' }, ' · vægtet gns.'))
-      : el('td', {}, lab);
+    const hint = lab === 'Alle lån' ? ' · vægtet gns.' : lab === 'Fast (>10 år)' ? ' · typisk 30-årig fast' : '';
+    const labCell = hint ? el('td', {}, lab, el('span', { class: 'th-hint' }, hint)) : el('td', {}, lab);
     tb.append(el('tr', { class: lab === 'Alle lån' ? 'row-avg' : '' }, labCell, el('td', { class: 'num strong' }, pct(l.rate)), chgCell, el('td', { class: 'muted' }, fmtYM(l.month))));
   });
   t.append(tb); wrap.append(t);
