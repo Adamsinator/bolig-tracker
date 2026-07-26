@@ -352,10 +352,13 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .afdrag-details #calcSchedule { max-height:360px; overflow:auto; margin-top:8px; }
 .rate-table.afdrag th { position:sticky; top:0; background:var(--surface); z-index:1; }
 .calc-controls { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; margin-bottom:14px; }
-.calc-controls label { display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:var(--muted); font-weight:600; }
+.calc-controls label { position:relative; display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:var(--muted); font-weight:600; }
 .calc-controls input, .calc-controls select { font:inherit; padding:7px 10px; border:1px solid var(--border);
   border-radius:9px; background:var(--surface-2); color:var(--ink); min-width:150px; }
-.calc-controls .unit { font-weight:600; color:var(--muted); }
+/* unit sits inside the field on the right, so unit-bearing labels stay the same
+   height as the plain selects (otherwise the input floats up when bottom-aligned) */
+.calc-controls label:has(> .unit) input { padding-right:32px; }
+.calc-controls .unit { position:absolute; right:11px; bottom:9px; font-weight:600; color:var(--muted); font-size:13px; pointer-events:none; }
 .calc-controls label[hidden] { display:none; }   /* [hidden] must beat display:flex */
 .calc-controls .sub { font-weight:500; color:var(--muted); font-size:11px; }
 .aff-head { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
