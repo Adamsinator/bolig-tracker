@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Om & forbehold — Bolig Tracker</title>
+<meta name="description" content="Om Bolig Tracker: datakilder og kildehenvisning, forbehold, persondata og privatliv samt kontakt.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="logo.svg?v=14">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=14">
+<link rel="manifest" href="manifest.webmanifest?v=14">
+<meta name="theme-color" content="#1c5cb0">
+<link rel="stylesheet" href="styles.css?v=38">
+<style>
+  .prose { max-width:760px; margin:0 auto; }
+  .prose h2 { font-size:16px; margin:2px 0 8px; }
+  .prose h3 { font-size:13.5px; color:var(--ink-2); margin:14px 0 4px; }
+  .prose p, .prose li { font-size:14px; line-height:1.65; color:var(--ink-2); }
+  .prose ul { margin:6px 0 6px 18px; }
+  .prose .card { margin-bottom:16px; }
+  .prose a { color:var(--link, #1c5cb0); }
+  .prose .lead { font-size:14.5px; color:var(--ink); }
+  .updated-note { color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="logo.svg?v=14" alt="Bolig Tracker" width="34" height="34">
+      <div>
+        <h1>Om &amp; forbehold</h1>
+        <p class="tagline">Bolig Tracker — uofficielt hobbyprojekt</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <a class="nav-link" href="index.html">← Bolig Tracker</a>
+      <button class="theme-toggle" id="themeToggle" title="Skift lyst/mørkt tema" aria-label="Skift tema"></button>
+    </div>
+  </header>
+
+  <section class="prose">
+    <div class="card">
+      <h2>Hvad er Bolig Tracker?</h2>
+      <p class="lead">Bolig Tracker er et uafhængigt, ikke-kommercielt hobbyprojekt, der giver
+      et overblik over boligmarkedet i hovedstadsområdet — udbudspriser, realiserede
+      salgspriser, kvadratmeterpriser, et kort og realkreditrenter.</p>
+      <p>Projektet er <strong>ikke</strong> tilknyttet, sponsoreret af eller godkendt af
+      boligsiden.dk, Boliga, Danmarks Statistik, Danmarks Nationalbank, Dataforsyningen,
+      DSB, Metroselskabet eller nogen kommune. Alle navne og varemærker tilhører deres
+      respektive ejere og bruges udelukkende til at henvise til kilder og faktuelle forhold.</p>
+    </div>
+
+    <div class="card">
+      <h2>Forbehold</h2>
+      <ul>
+        <li><strong>Vurderinger er estimater.</strong> »Fair værdi« og lignende tal er
+        resultatet af en statistisk model, ikke en ejendomsvurdering. De kan afvige
+        væsentligt fra en mæglervurdering eller en faktisk handelspris.</li>
+        <li><strong>Renter og beregninger er vejledende.</strong> Ydelses- og
+        købsberegnere bygger på gennemsnitlige, offentliggjorte renter og forenklede
+        antagelser. Et konkret lånetilbud afhænger af institut, belåningsgrad,
+        kursskæring og en individuel kreditvurdering med stresstest.</li>
+        <li><strong>Data kan være forældede eller fejlbehæftede.</strong> Tal hentes
+        automatisk fra tredjeparter og opdateres periodisk. Der gives ingen garanti for
+        rigtighed, fuldstændighed eller aktualitet.</li>
+        <li><strong>Ikke rådgivning.</strong> Intet på siden udgør økonomisk, juridisk
+        eller investeringsmæssig rådgivning. Træf ikke beslutninger alene på baggrund af
+        siden — søg professionel rådgivning.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Datakilder &amp; kildehenvisning</h2>
+      <ul>
+        <li><strong>Udbudspriser</strong> — <a href="https://www.boligsiden.dk" target="_blank" rel="noopener">boligsiden.dk</a></li>
+        <li><strong>Realiserede salgspriser</strong> (tinglyste handler) — <a href="https://www.boliga.dk" target="_blank" rel="noopener">Boliga</a></li>
+        <li><strong>Prisindeks</strong> — <a href="https://www.statistikbanken.dk/EJ56" target="_blank" rel="noopener">Danmarks Statistik (EJ56)</a></li>
+        <li><strong>Realkreditrenter</strong> — Danmarks Nationalbank (DNRNURI, via <a href="https://www.statistikbanken.dk" target="_blank" rel="noopener">Danmarks Statistik</a>)</li>
+        <li><strong>Adressesøgning &amp; kommunegrænser</strong> — <a href="https://dataforsyningen.dk" target="_blank" rel="noopener">Dataforsyningen / DAWA</a></li>
+        <li><strong>S-tog, metro &amp; letbane</strong> — © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-bidragydere (ODbL)</li>
+        <li><strong>Kortbaggrund</strong> — © OpenStreetMap-bidragydere, fliser © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a></li>
+        <li><strong>Kortbibliotek</strong> — <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> (BSD-2)</li>
+      </ul>
+      <p class="updated-note">Data tilhører deres respektive kilder og bruges her i afledt/aggregeret
+      form med henvisning tilbage til kilden. Kontakt os hvis en kilde ønsker rettelse eller fjernelse.</p>
+    </div>
+
+    <div class="card">
+      <h2>Persondata &amp; privatliv</h2>
+      <p>Bolig Tracker sætter <strong>ingen cookies</strong>, bruger <strong>ingen
+      analyseværktøjer eller trackere</strong> og opretter ingen brugerkonti. Adresser
+      du selv indtaster (fx i »Find bolig mellem hjem og arbejde«) sendes til
+      Dataforsyningens adressetjeneste for at slå koordinater op og gemmes ikke af os.</p>
+      <p>Siden viser oplysninger om boliger til salg og tinglyste handler (adresse, pris,
+      areal m.m.), som kan udgøre personoplysninger. Vi viser ikke ejeres navne og går
+      ikke ud over, hvad der allerede er offentligt tilgængeligt hos kilderne.</p>
+      <p><strong>Ønsker du en bolig fjernet eller rettet?</strong> Skriv til os (se
+      Kontakt), så behandler vi henvendelsen hurtigst muligt.</p>
+    </div>
+
+    <div class="card">
+      <h2>Kontakt</h2>
+      <p>Spørgsmål, rettelser, fjernelse (takedown) eller sikkerhedshenvendelser:
+      <br><strong>kontakt@&lt;dit-domæne&gt;.dk</strong> <span class="updated-note">(opsæt en rigtig adresse før lancering)</span>
+      <br>eller via projektets side på <a href="https://github.com/Adamsinator/bolig-tracker" target="_blank" rel="noopener">GitHub</a>.</p>
+    </div>
+
+    <div class="card">
+      <h2>Ansvarsfraskrivelse</h2>
+      <p>Siden stilles til rådighed »som den er og forefindes«, uden garantier af nogen
+      art. I det omfang loven tillader det, fraskriver vi os ethvert ansvar for tab eller
+      skade, der måtte følge af brug af — eller tillid til — oplysninger på siden,
+      herunder økonomiske dispositioner truffet på baggrund af vurderinger, priser eller
+      renteberegninger.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p><a href="index.html">Bolig Tracker</a> · <a href="renter.html">Realkreditrenter</a> · Om &amp; forbehold ·
+    uofficielt hobbyprojekt uden garanti.</p>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var saved = localStorage.getItem('hbTheme');
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+    addEventListener('DOMContentLoaded', function () {
+      var tt = document.getElementById('themeToggle'); if (!tt) return;
+      tt.addEventListener('click', function () {
+        var cur = document.documentElement.getAttribute('data-theme');
+        var dark = cur ? cur === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+        localStorage.setItem('hbTheme', dark ? 'light' : 'dark');
+      });
+    });
+  })();
+</script>
+</body>
+</html>

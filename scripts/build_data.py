@@ -67,7 +67,7 @@ def fetch(muni, addr_type):
         })
         req = urllib.request.Request(
             f"{API}?{qs}",
-            headers={"Accept": "application/json", "User-Agent": "bolig-tracker/1.0"},
+            headers={"Accept": "application/json", "User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"},
         )
         for attempt in range(4):
             try:
@@ -491,7 +491,7 @@ def fetch_bvc():
         print("    BVC skipped (openpyxl not installed)", file=sys.stderr)
         return None
     try:
-        req = urllib.request.Request(BVC_URL, headers={"User-Agent": "bolig-tracker/1.0"})
+        req = urllib.request.Request(BVC_URL, headers={"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"})
         raw = urllib.request.urlopen(req, timeout=60).read()
         wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     except Exception as e:
@@ -728,7 +728,7 @@ def _overpass(query):
     for url in OVERPASS_MIRRORS:
         try:
             req = urllib.request.Request(url, data=query.encode("utf-8"),
-                                         headers={"User-Agent": "bolig-tracker/1.0"})
+                                         headers={"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"})
             with hard_timeout(45), urllib.request.urlopen(req, timeout=40) as r:
                 return json.load(r)
         except Exception as ex:
@@ -875,7 +875,7 @@ def _boliga_sold_page(code, ptype, date_min, page):
     for attempt in range(5):          # ~2+4+6+8s of backoff — rides out rate limits
         try:
             req = urllib.request.Request(f"{BOLIGA_SOLD}?{qs}",
-                headers={"Accept": "application/json", "User-Agent": "bolig-tracker/1.0"})
+                headers={"Accept": "application/json", "User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"})
             with hard_timeout(40), urllib.request.urlopen(req, timeout=35) as r:
                 return json.load(r)
         except Exception as ex:
