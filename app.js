@@ -1145,9 +1145,21 @@ function regionBounds() {
   if (a === 1e9) { S.all.forEach(r => { a = Math.min(a, r.lat); b = Math.min(b, r.lon); c = Math.max(c, r.lat); d = Math.max(d, r.lon); }); }
   return [[a, b], [c, d]];
 }
+// Default view: fit to where the homes actually are (the kommune polygons sprawl
+// into Øresund and the western fjords, which leaves the corridor looking tiny).
+// Trim the 1.5 % tails so a lone outlier can't zoom the whole map out.
+function homeBounds() {
+  const lats = S.all.map(r => r.lat).filter(Boolean).sort((x, y) => x - y);
+  const lons = S.all.map(r => r.lon).filter(Boolean).sort((x, y) => x - y);
+  if (lats.length < 20) return regionBounds();
+  const q = (arr, p) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * p)))];
+  return [[q(lats, 0.015), q(lons, 0.015)], [q(lats, 0.985), q(lons, 0.985)]];
+}
 
 function initMap() {
-  const map = L.map('map', { preferCanvas: true, zoomControl: true, minZoom: 8, maxZoom: 18, doubleClickZoom: true, scrollWheelZoom: true });
+  // zoomSnap < 1 lets fitBounds settle on a fractional zoom that fills the frame,
+  // instead of dropping a whole level when the region is a hair too tall/wide
+  const map = L.map('map', { preferCanvas: true, zoomControl: true, minZoom: 8, maxZoom: 18, zoomSnap: 0.25, zoomDelta: 0.5, doubleClickZoom: true, scrollWheelZoom: true });
   MAP.map = map;
   MAP.renderer = L.canvas({ padding: 0.4 });
   L.control.scale({ imperial: false }).addTo(map);
@@ -1161,7 +1173,7 @@ function initMap() {
   MAP.L.transit = L.layerGroup().addTo(map);
   MAP.L.transitLabels = L.layerGroup().addTo(map);
   MAP.L.geo = L.layerGroup().addTo(map);
-  map.fitBounds(regionBounds(), { padding: [12, 12] });
+  map.fitBounds(homeBounds(), { padding: [6, 6] });
   drawRail(); drawStations(); applyRailVisibility();
   drawTransit(); applyTransitVisibility();
   map.on('mouseout', hideTip);
@@ -1301,15 +1313,13 @@ function drawStations() {
   });
   drawStationLabels();
 }
-// Major S-train hubs are always labelled; the rest appear once zoomed in — the
-// same zoom-based behaviour as the metro station names.
+// S-tog station names appear only once zoomed in — the same zoom-based behaviour
+// as the metro labels, so the regional view stays uncluttered.
 function drawStationLabels() {
   const lay = MAP.L.stationLabels; if (!lay) return;
   lay.clearLayers();
-  if (!S.meta || !MAP.map) return;
-  const showAll = MAP.map.getZoom() >= TRANSIT_LABEL_ZOOM;
+  if (!S.meta || !MAP.map || MAP.map.getZoom() < TRANSIT_LABEL_ZOOM) return;
   S.meta.stations.forEach(s => {
-    if (!showAll && !BIG_STATIONS.has(s.name)) return;
     L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: esc(s.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
   });
 }
@@ -1421,7 +1431,7 @@ function drawMap(f) {
 }
 
 function refreshMapTheme() { if (MAP.inited) { setTiles(); drawRail(); drawStations(); drawTransit(); } }
-function fitAll() { if (MAP.map) MAP.map.fitBounds(regionBounds(), { padding: [12, 12] }); }
+function fitAll() { if (MAP.map) MAP.map.fitBounds(homeBounds(), { padding: [6, 6] }); }
 function fitToSelection() {
   if (!MAP.map) return;
   const pts = [S.A, S.B].filter(Boolean);

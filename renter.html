@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=14">
 <link rel="manifest" href="manifest.webmanifest?v=14">
 <meta name="theme-color" content="#1c5cb0">
-<link rel="stylesheet" href="styles.css?v=39">
+<link rel="stylesheet" href="styles.css?v=40">
 </head>
 <body>
 <div id="app">
@@ -58,8 +58,8 @@
     <div class="card wide">
       <div class="card-head"><h2>Hvor meget kan jeg købe for? <span class="src">· ud fra indkomst og opsparing</span></h2></div>
       <div class="calc-controls">
-        <label>Årlig husstandsindkomst <span class="sub">før skat</span>
-          <input type="text" id="affIncome" value="600000" inputmode="numeric" autocomplete="off"><span class="unit">kr.</span></label>
+        <label>Månedlig husstandsindkomst <span class="sub">før skat</span>
+          <input type="text" id="affIncome" value="50000" inputmode="numeric" autocomplete="off"><span class="unit">kr.</span></label>
         <label>Opsparing til udbetaling
           <input type="text" id="affSavings" value="350000" inputmode="numeric" autocomplete="off"><span class="unit">kr.</span></label>
         <label>Rentebinding
@@ -77,28 +77,48 @@
     </div>
 
     <div class="card wide">
-      <div class="card-head"><h2>Ydelsesberegner <span class="src">· månedlig ydelse for et kendt lånebeløb</span></h2></div>
+      <div class="card-head"><h2>Ydelsesberegner <span class="src">· annuitetslån</span></h2>
+        <div class="seg" id="calcMode" role="group" aria-label="Beregningsmåde">
+          <button data-mode="amount" class="active">Ud fra lånebeløb</button>
+          <button data-mode="payment">Ud fra ydelse</button>
+        </div>
+      </div>
       <div class="calc-controls">
-        <label>Lånebeløb
+        <label id="calcAmountWrap">Lånebeløb
           <input type="text" id="calcAmount" value="3000000" inputmode="numeric" autocomplete="off">
+          <span class="unit">kr.</span>
+        </label>
+        <label id="calcPayWrap" hidden>Ønsket månedlig ydelse
+          <input type="text" id="calcPay" value="15000" inputmode="numeric" autocomplete="off">
           <span class="unit">kr.</span>
         </label>
         <label>Løbetid
           <select id="calcTerm">
             <option value="30">30 år</option>
+            <option value="25">25 år</option>
             <option value="20">20 år</option>
             <option value="15">15 år</option>
             <option value="10">10 år</option>
+            <option value="8">8 år</option>
+            <option value="5">5 år</option>
           </select>
         </label>
-        <label>Rentebinding
+        <label>Rente
           <select id="calcFix"></select>
+        </label>
+        <label id="calcRateWrap" hidden>Egen rente
+          <input type="text" id="calcRate" value="4,00" inputmode="decimal" autocomplete="off" size="4">
+          <span class="unit">%</span>
         </label>
       </div>
       <div class="aff-head" id="calcSplit"></div>
       <div class="card-head sub"><h3>Rente vs. afdrag over tid</h3></div>
       <div id="calcAmort" class="chart"></div>
       <p class="chart-note" id="calcAmortNote"></p>
+      <details class="afdrag-details">
+        <summary>Vis fuld afdragsplan (år for år)</summary>
+        <div id="calcSchedule" class="rate-table-wrap"></div>
+      </details>
       <div class="card-head sub"><h3>Alle rentebindinger</h3></div>
       <div id="calcTable" class="rate-table-wrap"></div>
       <p class="chart-note">Annuitetsydelse før skat, beregnet af den effektive rente inkl. bidrag. Reelle tilbud afhænger af institut, belåningsgrad og kursskæring.</p>
@@ -117,6 +137,6 @@
 
   <div id="tooltip" class="tooltip" hidden></div>
 </div>
-<script src="renter.js?v=39"></script>
+<script src="renter.js?v=40"></script>
 </body>
 </html>
