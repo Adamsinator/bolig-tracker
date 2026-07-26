@@ -109,18 +109,6 @@ def nearest_station(lat, lon):
     return best
 
 
-def pick_thumb(images):
-    """Smallest image wider than ~250px, else the first source."""
-    if not images:
-        return None
-    srcs = images[0].get("imageSources") or []
-    if not srcs:
-        return None
-    wide = [s for s in srcs if (s.get("size") or {}).get("width", 0) >= 250]
-    chosen = min(wide, key=lambda s: s["size"]["width"]) if wide else srcs[0]
-    return chosen.get("url")
-
-
 def address_line(addr):
     road = addr.get("roadName") or ""
     house = addr.get("houseNumber") or ""
@@ -192,7 +180,6 @@ def trim(case):
         "city": addr.get("cityName"),
         "zip": addr.get("zipCode"),
         "adr": address_line(addr),
-        "img": pick_thumb(case.get("images")),
         "rt": (case.get("realtor") or {}).get("name"),
         "url": "https://www.boligsiden.dk/adresse/" + case["slug"] if case.get("slug") else case.get("caseUrl"),
         "elev": bool(case.get("hasElevator")),

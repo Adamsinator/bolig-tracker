@@ -277,7 +277,12 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .lcard { border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--surface);
   display:flex; flex-direction:column; text-decoration:none; color:inherit; transition:transform .08s, box-shadow .12s; }
 .lcard:hover { transform:translateY(-2px); box-shadow:var(--shadow); }
-.lcard .thumb { aspect-ratio:3/2; background:var(--surface-2) center/cover no-repeat; position:relative; }
+.lcard .thumb { height:78px; background:var(--surface-2); position:relative; overflow:hidden; }
+.lcard .thumb.condo { background:linear-gradient(135deg, color-mix(in srgb, var(--condo) 16%, var(--surface-2)), var(--surface-2)); }
+.lcard .thumb.villa { background:linear-gradient(135deg, color-mix(in srgb, var(--villa) 16%, var(--surface-2)), var(--surface-2)); }
+.lcard .thumb::after { position:absolute; right:10px; bottom:6px; font-size:30px; opacity:.16; line-height:1; pointer-events:none; }
+.lcard .thumb.condo::after { content:"🏢"; }
+.lcard .thumb.villa::after { content:"🏡"; }
 .lcard .badge { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.72); color:#fff;
   font-size:11px; font-weight:600; padding:3px 7px; border-radius:6px; }
 .lcard .badge.villa{ background:var(--villa); } .lcard .badge.condo{ background:var(--condo); }

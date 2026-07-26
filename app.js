@@ -1628,7 +1628,9 @@ function renderCards(f) {
 }
 function card(r) {
   const a = el('a', { class: 'lcard', href: r.url || '#', target: '_blank', rel: 'noopener' });
-  const thumb = el('div', { class: 'thumb' }); if (r.img) thumb.style.backgroundImage = `url("${r.img}")`;
+  // no listing photo (avoids republishing broker/boligsiden images) — a type-tinted
+  // placeholder holds the badges instead
+  const thumb = el('div', { class: 'thumb ' + r.t });
   const fav = el('button', { class: 'fav' + (isFav(r.id) ? ' on' : ''), type: 'button', title: isFav(r.id) ? 'Fjern fra gemte' : 'Gem bolig', 'aria-label': isFav(r.id) ? 'Fjern fra gemte' : 'Gem bolig', 'aria-pressed': isFav(r.id) ? 'true' : 'false' }, isFav(r.id) ? '♥' : '♡');
   fav.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleFav(r.id, r.p); renderCards(filtered()); });
   thumb.append(fav);
