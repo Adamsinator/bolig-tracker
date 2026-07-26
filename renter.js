@@ -62,6 +62,17 @@ function renderAll(mo) {
   renderHist(mo, order);
   renderAfford(mo, order);
   renderCalc(mo, order);
+
+  const rng = $('#histRange');
+  if (rng && !rng.dataset.wired) {
+    rng.dataset.wired = '1';
+    rng.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      HIST_MONTHS = +b.dataset.m || 144;
+      [...rng.children].forEach(c => c.classList.toggle('active', c === b));
+      renderHist(mo, order);
+    });
+  }
 }
 
 // Danish home-financing rules for the affordability calculator
@@ -185,37 +196,140 @@ function renderCurve(mo) {
   mount.append(svg);
 }
 
-// rate history — key fixations over the last ~12 years
+// linearly fill interior gaps up to maxGap months long, so a bucket that DST
+// skips for a month or two (e.g. ≤3 mdr.) stays a continuous line; longer gaps
+// and leading/trailing nulls stay broken (we don't invent years of history)
+function fillShortGaps(vals, maxGap) {
+  const out = vals.slice();
+  let i = 0;
+  while (i < out.length) {
+    if (out[i] == null) { i++; continue; }
+    let j = i + 1;
+    while (j < out.length && out[j] == null) j++;
+    const gap = j - i - 1;
+    if (j < out.length && gap > 0 && gap <= maxGap) {
+      for (let k = i + 1; k < j; k++) out[k] = out[i] + (out[j] - out[i]) * (k - i) / (j - i);
+    }
+    i = j;
+  }
+  return out;
+}
+
+// rate history — key fixations, with a selectable look-back window
+let HIST_MONTHS = 144;   // default ~12 years
 function renderHist(mo, order) {
   const mount = $('#histChart'); mount.innerHTML = '';
-  const months = mo.months, n = months.length, start = Math.max(0, n - 144);
+  const months = mo.months, n = months.length;
+  const start = HIST_MONTHS >= n ? 0 : Math.max(0, n - HIST_MONTHS);
   const xs = months.slice(start);
   const want = ['Variabel (≤3 mdr.)', '1–5 år', 'Fast (>10 år)', 'Alle lån'];
   const labs = order.filter(l => want.includes(l));
-  const series = (labs.length ? labs : order).map((lab, i) => ({ name: lab, color: COLORS[i % COLORS.length], values: mo.series[lab].slice(start) }));
+  const series = (labs.length ? labs : order).map((lab, i) => ({ name: lab, color: COLORS[i % COLORS.length], values: fillShortGaps(mo.series[lab], 3).slice(start) }));
   lineChart(mount, xs.map(fmtYM), series);
 }
 
-// annuity payment calculator
+// month-by-month amortisation of an annuity loan: for each month the payment
+// splits into interest (on the outstanding balance) and principal (the rest).
+// Interest shrinks and principal grows over the term — we return the yearly
+// totals plus the month where principal first exceeds interest.
+function amortise(amt, ratePctYr, nMon) {
+  const r = ratePctYr / 100 / 12;
+  const pay = r > 0 ? amt * r / (1 - Math.pow(1 + r, -nMon)) : amt / nMon;
+  let bal = amt, cross = null;
+  const years = [];
+  let yInt = 0, yPri = 0;
+  for (let m = 1; m <= nMon; m++) {
+    const interest = bal * r;
+    const principal = Math.min(pay - interest, bal);
+    bal -= principal;
+    yInt += interest; yPri += principal;
+    if (cross == null && principal > interest) cross = m;
+    if (m % 12 === 0 || m === nMon) { years.push({ interest: yInt, principal: yPri }); yInt = 0; yPri = 0; }
+  }
+  return { pay, years, cross, totalInterest: years.reduce((a, y) => a + y.interest, 0) };
+}
+
+// stacked bar chart: afdrag (bottom) + rente (top) per year, with the crossover
+// year marked — shows how an annuity shifts from mostly-interest to mostly-principal
+function amortChart(mount, years, crossYear) {
+  mount.innerHTML = '';
+  if (!years.length) { mount.append(el('div', { class: 'loading' }, 'Ingen data.')); return; }
+  const W = 640, H = 260, padL = 48, padR = 12, padT = 12, padB = 34, plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...years.map(y => y.interest + y.principal)) || 1;
+  const n = years.length, bw = plotW / n * 0.72, gap = plotW / n;
+  const Y = v => padT + plotH - v / max * plotH;
+  const svg = svel('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
+  for (let g = 0; g <= 4; g++) { const yv = max * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = Math.round(yv / 1000) + 'k'; svg.append(tx); }
+  const cAf = cssVar('--good') || '#1a7f37', cRe = cssVar('--bad') || '#c0392b';
+  years.forEach((y, i) => {
+    const x = padL + i * gap + (gap - bw) / 2;
+    const hAf = y.principal / max * plotH, hRe = y.interest / max * plotH;
+    const g = svel('g');
+    g.append(svel('rect', { x, y: Y(y.principal), width: bw, height: hAf, fill: cAf, opacity: .85 }));
+    g.append(svel('rect', { x, y: Y(y.principal + y.interest), width: bw, height: hRe, fill: cRe, opacity: .8 }));
+    g.addEventListener('mousemove', e => showTip(`<div class="tt-title">År ${i + 1}</div><div class="tt-row"><span><i class="dot" style="background:${cAf}"></i>Afdrag</span><b>${kr(y.principal)}</b></div><div class="tt-row"><span><i class="dot" style="background:${cRe}"></i>Rente</span><b>${kr(y.interest)}</b></div>`, e.clientX, e.clientY));
+    g.addEventListener('mouseleave', hideTip);
+    svg.append(g);
+  });
+  const step = Math.max(1, Math.ceil(n / 10));
+  for (let i = 0; i < n; i += step) { const x = padL + i * gap + gap / 2; const tx = svel('text', { x, y: H - padB + 15, 'text-anchor': 'middle', class: 'axis-txt' }); tx.textContent = (i + 1); svg.append(tx); }
+  if (crossYear && crossYear <= n) {
+    const x = padL + (crossYear - 1) * gap + gap / 2;
+    svg.append(svel('line', { x1: x, y1: padT, x2: x, y2: padT + plotH, class: 'crosshair', 'stroke-dasharray': '3 3' }));
+  }
+  mount.append(svg);
+  const lg = el('div', { class: 'chart-legend' });
+  lg.append(el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${cAf}` }), 'Afdrag'),
+    el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${cRe}` }), 'Rente'));
+  mount.append(lg);
+}
+
+// annuity payment calculator — headline split, amortisation chart, full table
 function renderCalc(mo, order) {
+  const fix = $('#calcFix');
+  if (fix && !fix.options.length) {
+    order.forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; if (l === 'Fast (>10 år)') o.selected = true; fix.append(o); });
+  }
+  const tile = (v, l) => el('div', { class: 'kstat' }, el('div', { class: 'kstat-v' }, v), el('div', { class: 'kstat-l' }, l));
   const build = () => {
     const amt = Math.max(0, +$('#calcAmount').value || 0);
     const yrs = +$('#calcTerm').value || 30;
     const nMon = yrs * 12;
+    const fixLab = ($('#calcFix') && $('#calcFix').value) || 'Fast (>10 år)';
+    const sel = mo.latest[fixLab] || mo.latest['Fast (>10 år)'] || { rate: 5 };
+    const am = amortise(amt, sel.rate, nMon);
+    const firstInt = amt * (sel.rate / 100 / 12), firstPri = am.pay - firstInt;
+
+    const head = $('#calcSplit'); if (head) {
+      head.innerHTML = '';
+      head.append(
+        tile(kr(am.pay) + ' /md.', 'Ydelse (' + fixLab.replace(/ \(.*/, '') + ')'),
+        tile(kr(firstInt) + ' /md.', 'Heraf rente (1. md.)'),
+        tile(kr(firstPri) + ' /md.', 'Heraf afdrag (1. md.)'));
+    }
+    amortChart($('#calcAmort'), am.years, am.cross ? Math.ceil(am.cross / 12) : null);
+    const note = $('#calcAmortNote');
+    if (note) {
+      const crossYr = am.cross ? (am.cross / 12) : null;
+      note.textContent = crossYr
+        ? `Ved ${fixLab.toLowerCase()} (${pct(sel.rate)}) går der ca. ${crossYr < 1 ? 'under 1 år' : Math.round(crossYr) + ' år'}, før du betaler mere i afdrag end i rente. Samlet rente over ${yrs} år: ${kr(am.totalInterest)}`
+        : `Ved ${fixLab.toLowerCase()} (${pct(sel.rate)}) betaler du fra første måned mere i afdrag end i rente. Samlet rente over ${yrs} år: ${kr(am.totalInterest)}`;
+    }
+
     const wrap = $('#calcTable'); wrap.innerHTML = '';
     const t = el('table', { class: 'rate-table' });
-    t.append(el('thead', {}, el('tr', {}, el('th', {}, 'Rentebinding'), el('th', {}, 'Rente'), el('th', {}, 'Md. ydelse'), el('th', {}, 'Samlet tilbagebetaling'))));
+    t.append(el('thead', {}, el('tr', {}, el('th', {}, 'Rentebinding'), el('th', {}, 'Rente'), el('th', {}, 'Md. ydelse'), el('th', {}, 'Samlet rente'), el('th', {}, 'Samlet tilbagebetaling'))));
     const tb = el('tbody');
     order.forEach(lab => {
       const l = mo.latest[lab]; if (!l) return;
-      const r = l.rate / 100 / 12;
-      const m = r > 0 ? amt * r / (1 - Math.pow(1 + r, -nMon)) : amt / nMon;
-      tb.append(el('tr', {}, el('td', {}, lab), el('td', { class: 'num' }, pct(l.rate)), el('td', { class: 'num strong' }, kr(m)), el('td', { class: 'num muted' }, kr(m * nMon))));
+      const a = amortise(amt, l.rate, nMon);
+      tb.append(el('tr', { class: lab === fixLab ? 'row-avg' : '' }, el('td', {}, lab), el('td', { class: 'num' }, pct(l.rate)), el('td', { class: 'num strong' }, kr(a.pay)), el('td', { class: 'num muted' }, kr(a.totalInterest)), el('td', { class: 'num muted' }, kr(a.pay * nMon))));
     });
     t.append(tb); wrap.append(t);
   };
   $('#calcAmount').oninput = build;
   $('#calcTerm').onchange = build;
+  if ($('#calcFix')) $('#calcFix').onchange = build;
   build();
 }
 

@@ -208,6 +208,8 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px; box-shadow:var(--shadow); min-width:0; }
 .card-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
 .card-head h2 { font-size:14.5px; }
+.card-head.sub { margin-top:18px; border-top:1px solid var(--border-2); padding-top:14px; }
+.card-head.sub h3 { font-size:13px; color:var(--ink-2); font-weight:650; }
 .card-head .count { color:var(--muted); font-weight:500; font-size:13px; }
 .map-card { grid-column:1 / -1; }
 .map-controls label, .card-head label { font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
