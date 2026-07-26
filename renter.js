@@ -17,6 +17,14 @@ const MONTHS_DA = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep'
 const fmtYM = ym => { const [y, m] = String(ym).split('M'); return (MONTHS_DA[+m - 1] || '') + ' ' + y; };
 const pct = v => v == null ? '–' : v.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %';
 const kr = v => v == null ? '–' : Math.round(v).toLocaleString('da-DK') + ' kr.';
+// grouped-number inputs: read digits only, keep the field showing 600.000 etc.
+const numVal = id => { const e = $(id); return e ? (+String(e.value).replace(/\D/g, '') || 0) : 0; };
+function wireNumInput(id, onChange) {
+  const e = $(id); if (!e) return;
+  const fmt = () => { const n = String(e.value).replace(/\D/g, ''); e.value = n ? (+n).toLocaleString('da-DK') : ''; };
+  fmt();  // format the initial value
+  e.addEventListener('input', () => { fmt(); onChange(); });
+}
 const COLORS = ['#e6212a', '#e08a00', '#12a06f', '#1c5cb0', '#7a5cff', '#00a3c7', '#555'];
 
 // theme (shared key with the main app)
@@ -90,8 +98,8 @@ function renderAfford(mo, order) {
     });
   }
   const build = () => {
-    const income = Math.max(0, +$('#affIncome').value || 0);
-    const savings = Math.max(0, +$('#affSavings').value || 0);
+    const income = Math.max(0, numVal('#affIncome'));
+    const savings = Math.max(0, numVal('#affSavings'));
     const fixLab = $('#affFix').value || 'Fast (>10 år)';
     const yrs = +$('#affTerm').value || 30;
     const rk = (mo.latest[fixLab] || mo.latest['Fast (>10 år)'] || { rate: 5 }).rate;
@@ -127,7 +135,7 @@ function renderAfford(mo, order) {
     const note = $('#affNote');
     if (note) note.textContent = `Bindende grænse: ${bind === 'udbetaling' ? 'din udbetaling (min. 5 % af prisen)' : 'din indkomst (samlet gæld højst ' + DEBT_MULT + '× årlig husstandsindkomst)'}. Beregnet efter: min. 5 % udbetaling, realkredit maks. 80 % af prisen, resten som banklån (~${BANK_MARGIN.toLocaleString('da-DK')} pct.point dyrere end realkreditrenten). Vejledende — banken laver altid en konkret kreditvurdering med stresstest og rådighedsbeløb.`;
   };
-  ['#affIncome', '#affSavings'].forEach(s => { const e = $(s); if (e) e.oninput = build; });
+  ['#affIncome', '#affSavings'].forEach(s => wireNumInput(s, build));
   ['#affFix', '#affTerm'].forEach(s => { const e = $(s); if (e) e.onchange = build; });
   build();
 }
@@ -293,7 +301,7 @@ function renderCalc(mo, order) {
   }
   const tile = (v, l) => el('div', { class: 'kstat' }, el('div', { class: 'kstat-v' }, v), el('div', { class: 'kstat-l' }, l));
   const build = () => {
-    const amt = Math.max(0, +$('#calcAmount').value || 0);
+    const amt = Math.max(0, numVal('#calcAmount'));
     const yrs = +$('#calcTerm').value || 30;
     const nMon = yrs * 12;
     const fixLab = ($('#calcFix') && $('#calcFix').value) || 'Fast (>10 år)';
@@ -328,7 +336,7 @@ function renderCalc(mo, order) {
     });
     t.append(tb); wrap.append(t);
   };
-  $('#calcAmount').oninput = build;
+  wireNumInput('#calcAmount', build);
   $('#calcTerm').onchange = build;
   if ($('#calcFix')) $('#calcFix').onchange = build;
   build();
