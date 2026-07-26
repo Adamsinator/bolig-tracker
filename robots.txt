@@ -1,7 +1,5 @@
-# Bolig Tracker — https://github.com/Adamsinator/bolig-tracker
-# Crawling allowed. NB: indexering er indtil videre slået fra med
-# <meta name="robots" content="noindex"> på siderne, indtil domænet er live.
+# Bolig Tracker — https://boligtracker.dk
 User-agent: *
 Allow: /
 
-# Sitemap: https://<dit-domæne>.dk/sitemap.xml   # tilføjes når domænet er valgt
+Sitemap: https://boligtracker.dk/sitemap.xml
