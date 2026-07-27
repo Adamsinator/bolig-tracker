@@ -772,12 +772,42 @@ def fetch_transit():
     return {"lines": lines, "stations": stations}
 
 
+def _rdp(points, eps):
+    """Ramer–Douglas–Peucker line simplification (iterative, no recursion limit).
+    `points` is a list of [lat, lon]; `eps` is a tolerance in degrees (~0.00012 ≈
+    13 m). Drops points that sit within `eps` of the chord, keeping the shape."""
+    n = len(points)
+    if n < 3:
+        return points
+    keep = [False] * n
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        ax, ay = points[i]
+        bx, by = points[j]
+        dx, dy = bx - ax, by - ay
+        norm = math.hypot(dx, dy) or 1e-12
+        dmax, idx = 0.0, -1
+        for k in range(i + 1, j):
+            px, py = points[k]
+            d = abs((px - ax) * dy - (py - ay) * dx) / norm
+            if d > dmax:
+                dmax, idx = d, k
+        if idx != -1 and dmax > eps:
+            keep[idx] = True
+            stack.append((i, idx))
+            stack.append((idx, j))
+    return [p for p, k in zip(points, keep) if k]
+
+
 def fetch_rail_geometry():
     """Real S-train track geometry (issue #6): OSM route relations so the lines
-    follow the actual rails instead of straight hops between stations. Prints
-    every train route relation in the corridor (to reveal the real ref/network/
-    operator tagging), then keeps the S-tog ones grouped by ref. Fail-soft: any
-    error returns None and the map falls back to station-to-station lines."""
+    follow the actual rails instead of straight hops between stations. Copenhagen
+    S-tog is tagged route=light_rail (names 'S-tog A: …'); we keep those, group
+    the member-way geometry by line ref (A/B/Bx/C/E/F/H), drop the duplicate
+    other-direction relation, and simplify each way to keep the payload small.
+    Fail-soft: any error returns None and the map falls back to station lines."""
     try:
         s, w, n, e = CORRIDOR_BBOX
         data = _overpass(f'[out:json][timeout:120];rel["route"="light_rail"]({s},{w},{n},{e});out geom;')
@@ -802,7 +832,7 @@ def fetch_rail_geometry():
                 if key in seg_set:      # skip the mirrored other-direction relation
                     continue
                 seg_set.add(key)
-                segs.append(seg)
+                segs.append(_rdp(seg, 0.00012))
         print(f"  rail: S-tog geometry by ref { {k: len(v) for k, v in by_ref.items()} }")
         return by_ref or None
     except Exception as ex:

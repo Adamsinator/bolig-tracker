@@ -7,7 +7,7 @@ const S = {
   priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null,
   lotMin: null, floorMin: null, yearMin: null, daysMax: null, energyMin: null,
   hasBasement: false, hasElevator: false, hasBalcony: false,
-  search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, showMetro: true, trackerMap: null, onlyCut: false,
+  search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, showMetro: true, showPois: false, trackerMap: null, onlyCut: false,
   favs: {}, onlyFav: false, cmpA: null, cmpB: null, onlyNew: false, hideHf: false,
   A: null, B: null, radA: 3, radB: 3,   // home/work points {name,lat,lon}
   dstArea: '01', indexMode: 'krm2', bvc: null,
@@ -50,7 +50,7 @@ const PRICES = [1e6, 1.5e6, 2e6, 2.5e6, 3e6, 4e6, 5e6, 7.5e6, 10e6, 15e6, 20e6, 
 /* ===================== load ===================== */
 async function boot() {
   try {
-    const [meta, listings, geo, index, history, bvc, sold] = await Promise.all([
+    const [meta, listings, geo, index, history, bvc, sold, poi] = await Promise.all([
       fetch('data/meta.json').then(r => r.json()),
       fetch('data/listings.json').then(r => r.json()),
       fetch('data/geo.json').then(r => r.json()).catch(() => ({})),
@@ -58,8 +58,9 @@ async function boot() {
       fetch('data/history.json').then(r => r.json()).catch(() => ({ series: [] })),
       fetch('data/bvc.json').then(r => r.json()).catch(() => null),
       fetch('data/sold.json').then(r => r.json()).catch(() => null),
+      fetch('data/poi.json').then(r => r.json()).catch(() => null),
     ]);
-    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold;
+    S.meta = meta; S.all = listings; S.geo = geo; S.index = index; S.history = history; S.bvc = bvc; S.sold = sold; S.poi = poi;
     meta.municipalities.forEach(m => S.munis.add(m.slug));
     S.favs = loadFavs();    // saved homes (device-local)
     decodeState();          // apply any filters carried in the URL
@@ -128,6 +129,7 @@ function initUI() {
   on('#nearTransit', 'nearTransit'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew'); on('#hideHf', 'hideHf');
   $('#showRail').addEventListener('change', e => { S.showRail = e.target.checked; applyRailVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
   $('#showMetro').addEventListener('change', e => { S.showMetro = e.target.checked; applyTransitVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
+  { const pc = $('#showPois'); if (pc) pc.addEventListener('change', e => { S.showPois = e.target.checked; drawPois(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); }); }
   $('#search').addEventListener('input', e => {
     S.search = e.target.value.toLowerCase().trim(); S.shown = 60; render();
     // A postnummer (4-digit token, e.g. 2900) zooms the map to that area only;
@@ -1132,6 +1134,17 @@ function makeScale(vals, invert) {
 const MAP = { map: null, tiles: null, L: {}, renderer: null, inited: false };
 const LINE_COLORS = () => ({ central: cssVar('--ink-2'), hilleroed: cssVar('--condo'), klampenborg: '#12a06f', farum: '#7a5cff', frederikssund: '#e08a00', kystbanen: cssVar('--muted') });
 const BIG_STATIONS = new Set(['København H', 'Hellerup', 'Nørreport', 'Lyngby', 'Holte', 'Birkerød', 'Allerød', 'Hillerød', 'Farum', 'Værløse', 'Ballerup', 'Herlev', 'Klampenborg', 'Charlottenlund', 'Gentofte', 'Bagsværd', 'Rungsted Kyst', 'Nivå', 'Ordrup', 'Buddinge', 'Svanemøllen', 'Virum']);
+// S-tog line colours (issue #6) — one per real line ref from meta.railGeom.
+const STOG_COLORS = { A: '#1a9850', B: '#8c510a', Bx: '#bf9b30', C: '#e08214', E: '#2166ac', F: '#d6604d', H: '#01665e' };
+const STOG_ORDER = ['A', 'B', 'Bx', 'C', 'E', 'F', 'H'];
+// Amenity overlay (issue #7) — data/poi.json. childcare folds into daginstitution.
+const POI_STYLE = {
+  supermarket:  { c: '#2e7d32', label: 'Indkøb' },
+  school:       { c: '#1565c0', label: 'Skole' },
+  kindergarten: { c: '#ad1457', label: 'Daginstitution' },
+  childcare:    { c: '#ad1457', label: 'Daginstitution' },
+};
+const POI_ZOOM = 13;   // amenities are dense — only label/draw them zoomed in
 
 function isDark() { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
 function tileUrl() {
@@ -1172,12 +1185,14 @@ function initMap() {
   MAP.L.stationLabels = L.layerGroup().addTo(map);
   MAP.L.transit = L.layerGroup().addTo(map);
   MAP.L.transitLabels = L.layerGroup().addTo(map);
+  MAP.L.pois = L.layerGroup().addTo(map);
   MAP.L.geo = L.layerGroup().addTo(map);
   map.fitBounds(homeBounds(), { padding: [6, 6] });
   drawRail(); drawStations(); applyRailVisibility();
   drawTransit(); applyTransitVisibility();
+  drawPois();
   map.on('mouseout', hideTip);
-  map.on('zoomend', () => { resizeDots(); drawPriceLabels(); drawTransitLabels(); drawStationLabels(); });
+  map.on('zoomend', () => { resizeDots(); drawPriceLabels(); drawTransitLabels(); drawStationLabels(); drawPois(); });
   map.on('moveend', drawPriceLabels);
 
   // "reset view" control next to the zoom buttons
@@ -1297,8 +1312,24 @@ function applyTransitVisibility() {
 }
 function drawRail() {
   MAP.L.rail.clearLayers();
-  const stMap = Object.fromEntries(S.meta.stations.map(s => [s.name, s]));
   const col = LINE_COLORS();
+  const stMap = Object.fromEntries(S.meta.stations.map(s => [s.name, s]));
+  const rg = S.meta.railGeom;
+  if (rg && Object.keys(rg).length) {
+    // Real S-tog track geometry, one colour per line ref (A/B/Bx/C/E/F/H).
+    STOG_ORDER.filter(ref => rg[ref]).forEach(ref => {
+      const c = STOG_COLORS[ref] || col.central;
+      (rg[ref] || []).forEach(seg => L.polyline(seg, { renderer: MAP.renderer, color: c,
+        weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.rail));
+    });
+    // Kystbanen (regional) isn't in railGeom — keep its station-based dashed line.
+    (S.meta.lines || []).filter(Ln => Ln.corridor === 'kystbanen').forEach(Ln => {
+      const pts = Ln.stops.map(n => stMap[n]).filter(Boolean).map(s => [s.lat, s.lon]);
+      L.polyline(pts, { color: col.kystbanen, weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: '3 7' }).addTo(MAP.L.rail);
+    });
+    return;
+  }
+  // Fallback (no geometry available): the old straight station-to-station lines.
   S.meta.lines.forEach(Ln => {
     const pts = Ln.stops.map(n => stMap[n]).filter(Boolean).map(s => [s.lat, s.lon]);
     L.polyline(pts, { color: col[Ln.corridor], weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: Ln.corridor === 'kystbanen' ? '3 7' : null }).addTo(MAP.L.rail);
@@ -1321,6 +1352,19 @@ function drawStationLabels() {
   if (!S.meta || !MAP.map || MAP.map.getZoom() < TRANSIT_LABEL_ZOOM) return;
   S.meta.stations.forEach(s => {
     L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: esc(s.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
+  });
+}
+// Amenity overlay (issue #7): supermarkets / schools / daycare from data/poi.json.
+// ~1900 points, so only drawn when the toggle is on AND zoomed in past POI_ZOOM,
+// otherwise the regional view is an unreadable dot-cloud.
+function drawPois() {
+  const lay = MAP.L.pois; if (!lay) return;
+  lay.clearLayers();
+  if (!S.poi || !S.showPois || !MAP.map || MAP.map.getZoom() < POI_ZOOM) return;
+  (S.poi.items || []).forEach(p => {
+    const st = POI_STYLE[p.k]; if (!st) return;
+    L.circleMarker([p.lat, p.lon], { renderer: MAP.renderer, radius: 3, color: st.c, weight: 1.3, fillColor: st.c, fillOpacity: .5 })
+      .addTo(lay).bindTooltip((p.n ? esc(p.n) + ' · ' : '') + st.label, { direction: 'top', offset: [0, -3] });
   });
 }
 function drawBoundaries() {
@@ -1493,7 +1537,16 @@ function renderMapLegend(colorBy, f, lineColors) {
     const label = colorBy === 'm2p' ? 'Pris pr. m²' : colorBy === 'p' ? 'Pris' : colorBy === 'kommune' ? 'Median pris/m² pr. kommune' : 'Liggetid';
     box.append(el('span', { class: 'legend-item' }, label + ':'), el('span', { class: 'legend-item' }, colorBy === 'd' ? 'kort' : fmt(lo)), ramp, el('span', { class: 'legend-item' }, colorBy === 'd' ? 'lang' : fmt(hi)));
   }
-  if (S.showRail) S.meta.lines.forEach(L => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line' + (L.corridor === 'kystbanen' ? ' dashed' : ''), style: `border-top-color:${lineColors[L.corridor]}` }), L.label)));
+  if (S.showRail) {
+    const rg = S.meta.railGeom;
+    if (rg && Object.keys(rg).length) {
+      STOG_ORDER.filter(r => rg[r]).forEach(r => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${STOG_COLORS[r]}` }), 'S-tog ' + r)));
+      if ((S.meta.lines || []).some(L => L.corridor === 'kystbanen'))
+        box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${lineColors.kystbanen}` }), 'Kystbanen'));
+    } else {
+      S.meta.lines.forEach(L => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line' + (L.corridor === 'kystbanen' ? ' dashed' : ''), style: `border-top-color:${lineColors[L.corridor]}` }), L.label)));
+    }
+  }
   if (S.showMetro && S.meta.transit) {
     const lines = S.meta.transit.lines || [];
     const lineRef = l => {
@@ -1507,6 +1560,7 @@ function renderMapLegend(colorBy, f, lineColors) {
       box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
     if (lines.some(l => l.mode === 'letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
   }
+  if (S.showPois && S.poi) box.append(legItem(POI_STYLE.supermarket.c, 'Indkøb'), legItem(POI_STYLE.school.c, 'Skole'), legItem(POI_STYLE.kindergarten.c, 'Daginstitution'));
 }
 function legItem(color, text) { return el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${color}` }), text); }
 
