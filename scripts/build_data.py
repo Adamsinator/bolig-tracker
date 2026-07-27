@@ -682,8 +682,11 @@ def track_listings(data_dir, listings, today, keep_removed_days=365):
 # Overpass. Purely additive: any failure just means no overlay this build, so
 # it never breaks the daily run. S-train logic (near/sst) is untouched.
 # ---------------------------------------------------------------------------
-OVERPASS_MIRRORS = ["https://overpass.kumi.systems/api/interpreter",
-                    "https://overpass-api.de/api/interpreter"]
+OVERPASS_MIRRORS = ["https://overpass-api.de/api/interpreter",
+                    "https://overpass.kumi.systems/api/interpreter",
+                    "https://overpass.osm.jp/api/interpreter",
+                    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+                    "https://overpass.private.coffee/api/interpreter"]
 TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
 # Wider box covering the whole tracked corridor (København → Hillerød,
 # Frederikssund → the coast) for S-train track geometry and amenities.
@@ -715,14 +718,17 @@ def _overpass(query):
     socket timeout and a hard wall-clock cap apply so a hanging or slow-dribbling
     mirror fails over quickly — this overlay is optional and must never stall the
     run."""
-    for url in OVERPASS_MIRRORS:
-        try:
-            req = urllib.request.Request(url, data=query.encode("utf-8"),
-                                         headers={"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"})
-            with hard_timeout(45), urllib.request.urlopen(req, timeout=40) as r:
-                return json.load(r)
-        except Exception as ex:
-            print(f"  transit fetch via {url} failed ({ex})", file=sys.stderr)
+    for attempt in range(2):   # two passes over the mirrors — Overpass is flaky
+        for url in OVERPASS_MIRRORS:
+            try:
+                req = urllib.request.Request(url, data=query.encode("utf-8"),
+                                             headers={"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"})
+                with hard_timeout(95), urllib.request.urlopen(req, timeout=90) as r:
+                    return json.load(r)
+            except Exception as ex:
+                print(f"  overpass via {url} failed ({ex})", file=sys.stderr)
+        if attempt == 0:
+            time.sleep(8)
     return None
 
 def fetch_transit():
@@ -774,28 +780,30 @@ def fetch_rail_geometry():
     error returns None and the map falls back to station-to-station lines."""
     try:
         s, w, n, e = CORRIDOR_BBOX
-        data = _overpass(f'[out:json][timeout:120];rel["route"="train"]({s},{w},{n},{e});out geom;')
+        data = _overpass(f'[out:json][timeout:120];rel["route"="light_rail"]({s},{w},{n},{e});out geom;')
         rels = (data or {}).get("elements", [])
-        print(f"  rail: {len(rels)} train route relations in corridor bbox")
-        by_ref = {}
+        by_ref, seen = {}, {}
         for r in rels:
             t = r.get("tags", {}) or {}
-            ref = (t.get("ref") or "").strip()
-            net, op = t.get("network") or "", t.get("operator") or ""
             name = t.get("name") or ""
-            colour = t.get("colour") or t.get("color") or ""
-            print(f"    ref={ref!r:>5}  net={net!r:26}  op={op!r:18}  col={colour!r:9}  {name!r}")
-            blob = f"{net} {op} {name}".lower()
-            if not ("s-tog" in blob or "s-train" in blob or "s-bane" in blob):
+            # Copenhagen S-tog is tagged route=light_rail with names 'S-tog A: …';
+            # this also filters out the real Letbane / Nærumbanen (other names).
+            if "s-tog" not in name.lower():
                 continue
-            segs = []
+            ref = (t.get("ref") or "?").strip() or "?"
+            seg_set = seen.setdefault(ref, set())
+            segs = by_ref.setdefault(ref, [])
             for m in r.get("members", []):
                 g = m.get("geometry")
-                if m.get("type") == "way" and g and len(g) > 1:
-                    segs.append([[round(p["lat"], 5), round(p["lon"], 5)] for p in g])
-            if segs:
-                by_ref.setdefault(ref or "?", []).extend(segs)
-        print(f"  rail: kept S-tog refs { {k: len(v) for k, v in by_ref.items()} }")
+                if m.get("type") != "way" or not g or len(g) < 2:
+                    continue
+                seg = [[round(p["lat"], 5), round(p["lon"], 5)] for p in g]
+                key = (seg[0][0], seg[0][1], seg[-1][0], seg[-1][1], len(seg))
+                if key in seg_set:      # skip the mirrored other-direction relation
+                    continue
+                seg_set.add(key)
+                segs.append(seg)
+        print(f"  rail: S-tog geometry by ref { {k: len(v) for k, v in by_ref.items()} }")
         return by_ref or None
     except Exception as ex:
         print(f"  rail geometry fetch failed ({ex})", file=sys.stderr)
@@ -816,7 +824,7 @@ def fetch_pois():
     try:
         s, w, n, e = CORRIDOR_BBOX
         body = "".join(f'nwr{sel}({s},{w},{n},{e});' for _, sel in POI_KINDS)
-        data = _overpass(f'[out:json][timeout:120];({body});out center tags;')
+        data = _overpass(f'[out:json][timeout:120];({body});out center 8000;')
         els = (data or {}).get("elements", [])
         pois, counts = [], {}
         for el in els:
