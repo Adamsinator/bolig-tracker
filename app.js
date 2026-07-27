@@ -1175,6 +1175,11 @@ function initMap() {
   const map = L.map('map', { preferCanvas: true, zoomControl: true, minZoom: 8, maxZoom: 18, zoomSnap: 0.25, zoomDelta: 0.5, doubleClickZoom: true, scrollWheelZoom: true });
   MAP.map = map;
   MAP.renderer = L.canvas({ padding: 0.4 });
+  // Metro/letbane renders into a dedicated low pane so it sits *under* the S-tog
+  // lines and the home dots instead of the bright Cityring painting over them.
+  map.createPane('transitPane');
+  map.getPane('transitPane').style.zIndex = 350;   // above tiles (200), below overlay (400)
+  MAP.transitRenderer = L.canvas({ pane: 'transitPane', padding: 0.4 });
   L.control.scale({ imperial: false }).addTo(map);
   setTiles();
   MAP.L.boundaries = L.layerGroup().addTo(map);
@@ -1280,11 +1285,11 @@ function drawTransit() {
     const c = ln.mode === 'letbane' ? METRO_COLORS.letbane : (refCol || METRO_COLORS.metro);
     (ln.segs || []).forEach(seg => (isKnown ? known : unknown).push({ seg: offsetLatLngs(seg, off), c, mode: ln.mode, known: isKnown }));
   });
-  const add = o => L.polyline(o.seg, { color: o.c, weight: o.known ? 1.6 : 1.1, opacity: o.known ? 0.9 : 0.5,
+  const add = o => L.polyline(o.seg, { renderer: MAP.transitRenderer, color: o.c, weight: o.known ? 1.4 : 1.0, opacity: o.known ? 0.65 : 0.35,
     lineCap: 'round', lineJoin: 'round', dashArray: o.mode === 'letbane' ? '2 6' : null }).addTo(MAP.L.transit);
   unknown.forEach(add); known.forEach(add);
   (tr.stations || []).forEach(st => {
-    L.circleMarker([st.lat, st.lon], { renderer: MAP.renderer, radius: 3, color: '#4b5563', weight: 1.6, fillColor: cssVar('--surface'), fillOpacity: 1 })
+    L.circleMarker([st.lat, st.lon], { renderer: MAP.transitRenderer, radius: 3, color: '#4b5563', weight: 1.6, fillColor: cssVar('--surface'), fillOpacity: 1 })
       .addTo(MAP.L.transit).bindTooltip(esc(st.name) + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
   });
   drawTransitLabels();
