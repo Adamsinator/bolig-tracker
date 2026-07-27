@@ -59,6 +59,7 @@ STATIONS = [
     ("Rungsted Kyst", "kystbanen", 55.88244, 12.53151, False),
     ("Kokkedal", "kystbanen", 55.90326, 12.50242, False),
     ("Nivå", "kystbanen", 55.93343, 12.50625, False),
+    ("Humlebæk", "kystbanen", 55.96389, 12.53306, False),
 ]
 
 # Order of stations along each corridor, for drawing schematic polylines.
@@ -74,7 +75,7 @@ LINES = {
     "frederikssund": ["København H", "Herlev", "Skovlunde", "Malmparken",
                       "Ballerup", "Måløv", "Kildedal", "Veksø", "Ølstykke"],
     "kystbanen":     ["Klampenborg", "Skodsborg", "Vedbæk", "Rungsted Kyst",
-                      "Kokkedal", "Nivå"],
+                      "Kokkedal", "Nivå", "Humlebæk"],
 }
 
 LINE_LABELS = {
