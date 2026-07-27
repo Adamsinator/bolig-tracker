@@ -217,9 +217,9 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
   border:1px solid var(--border); border-radius:8px; padding:5px 8px; }
 
 /* ---- map ---- */
-.map-body { display:flex; gap:16px; align-items:flex-start; }
-.map-wrap { flex:1 1 auto; min-width:0; border-radius:12px; overflow:hidden; border:1px solid var(--border-2); position:relative; }
-#map { width:100%; height:min(86vh,860px); background:var(--map-bg); }
+.map-body { display:flex; gap:16px; align-items:stretch; }
+.map-wrap { flex:1 1 auto; min-width:0; border-radius:12px; overflow:hidden; border:1px solid var(--border-2); position:relative; display:flex; }
+#map { width:100%; height:100%; min-height:min(86vh,860px); background:var(--map-bg); }
 .leaflet-container { font: inherit; background:var(--map-bg); }
 /* station name labels */
 .st-name { font-size:10.5px; font-weight:650; color:var(--ink); white-space:nowrap;
@@ -443,7 +443,7 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
   .map-legend { flex-direction:row; flex-wrap:wrap; gap:12px; align-items:center; }
   /* the region is roughly square, so a portrait 76vh map left big empty margins —
      size the map closer to the region's aspect on narrow screens */
-  #map { height:min(112vw,460px); }
+  #map { height:min(112vw,460px); min-height:0; }
   .commute-grid { grid-template-columns:1fr; }
 }
 @media (max-width: 520px) {
