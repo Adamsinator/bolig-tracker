@@ -685,6 +685,9 @@ def track_listings(data_dir, listings, today, keep_removed_days=365):
 OVERPASS_MIRRORS = ["https://overpass.kumi.systems/api/interpreter",
                     "https://overpass-api.de/api/interpreter"]
 TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
+# Wider box covering the whole tracked corridor (København → Hillerød,
+# Frederikssund → the coast) for S-train track geometry and amenities.
+CORRIDOR_BBOX = (55.58, 12.05, 55.96, 12.70)  # s, w, n, e
 
 @contextlib.contextmanager
 def hard_timeout(seconds):
@@ -761,6 +764,81 @@ def fetch_transit():
         return None
     print(f"  transit: {len(lines)} line segments fetched")
     return {"lines": lines, "stations": stations}
+
+
+def fetch_rail_geometry():
+    """Real S-train track geometry (issue #6): OSM route relations so the lines
+    follow the actual rails instead of straight hops between stations. Prints
+    every train route relation in the corridor (to reveal the real ref/network/
+    operator tagging), then keeps the S-tog ones grouped by ref. Fail-soft: any
+    error returns None and the map falls back to station-to-station lines."""
+    try:
+        s, w, n, e = CORRIDOR_BBOX
+        data = _overpass(f'[out:json][timeout:120];rel["route"="train"]({s},{w},{n},{e});out geom;')
+        rels = (data or {}).get("elements", [])
+        print(f"  rail: {len(rels)} train route relations in corridor bbox")
+        by_ref = {}
+        for r in rels:
+            t = r.get("tags", {}) or {}
+            ref = (t.get("ref") or "").strip()
+            net, op = t.get("network") or "", t.get("operator") or ""
+            name = t.get("name") or ""
+            colour = t.get("colour") or t.get("color") or ""
+            print(f"    ref={ref!r:>5}  net={net!r:26}  op={op!r:18}  col={colour!r:9}  {name!r}")
+            blob = f"{net} {op} {name}".lower()
+            if not ("s-tog" in blob or "s-train" in blob or "s-bane" in blob):
+                continue
+            segs = []
+            for m in r.get("members", []):
+                g = m.get("geometry")
+                if m.get("type") == "way" and g and len(g) > 1:
+                    segs.append([[round(p["lat"], 5), round(p["lon"], 5)] for p in g])
+            if segs:
+                by_ref.setdefault(ref or "?", []).extend(segs)
+        print(f"  rail: kept S-tog refs { {k: len(v) for k, v in by_ref.items()} }")
+        return by_ref or None
+    except Exception as ex:
+        print(f"  rail geometry fetch failed ({ex})", file=sys.stderr)
+        return None
+
+
+POI_KINDS = [
+    ("supermarket",  '["shop"="supermarket"]'),
+    ("school",       '["amenity"="school"]'),
+    ("kindergarten", '["amenity"="kindergarten"]'),
+    ("childcare",    '["amenity"="childcare"]'),
+]
+
+def fetch_pois():
+    """Everyday amenities (issue #7): supermarkets, schools, daycare across the
+    corridor. Uses nwr + out center so area-mapped schools/daycare are included.
+    Fail-soft: returns None on any error so the build never stalls on this."""
+    try:
+        s, w, n, e = CORRIDOR_BBOX
+        body = "".join(f'nwr{sel}({s},{w},{n},{e});' for _, sel in POI_KINDS)
+        data = _overpass(f'[out:json][timeout:120];({body});out center tags;')
+        els = (data or {}).get("elements", [])
+        pois, counts = [], {}
+        for el in els:
+            t = el.get("tags") or {}
+            if t.get("shop") == "supermarket":       kind = "supermarket"
+            elif t.get("amenity") == "school":       kind = "school"
+            elif t.get("amenity") == "kindergarten": kind = "kindergarten"
+            elif t.get("amenity") == "childcare":    kind = "childcare"
+            else:
+                continue
+            lat = el.get("lat") if el.get("lat") is not None else (el.get("center") or {}).get("lat")
+            lon = el.get("lon") if el.get("lon") is not None else (el.get("center") or {}).get("lon")
+            if lat is None or lon is None:
+                continue
+            pois.append({"n": t.get("name") or "", "k": kind,
+                         "lat": round(lat, 5), "lon": round(lon, 5)})
+            counts[kind] = counts.get(kind, 0) + 1
+        print(f"  pois: {len(pois)} total by kind {counts}; named {sum(1 for p in pois if p['n'])}")
+        return pois or None
+    except Exception as ex:
+        print(f"  pois fetch failed ({ex})", file=sys.stderr)
+        return None
 
 
 # boligsiden's *search* payload only mentions hjemfald/tilbagekøb for a few
@@ -1097,6 +1175,30 @@ def main():
     transit = merge_transit(fetch_transit(), prev_transit)
     annotate_metro(listings, transit)
 
+    print("Fetching S-train track geometry (issue #6)…")
+    prev_rail = None
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                prev_rail = json.load(f).get("railGeom")
+        except Exception:
+            pass
+    rail_geom = fetch_rail_geometry() or prev_rail
+
+    print("Fetching amenities — supermarkets/schools/daycare (issue #7)…")
+    pois = fetch_pois()
+    poi_path = os.path.join(data_dir, "poi.json")
+    if not pois and os.path.exists(poi_path):
+        try:
+            with open(poi_path, encoding="utf-8") as f:
+                pois = json.load(f).get("items")
+        except Exception:
+            pass
+    if pois:
+        with open(poi_path, "w", encoding="utf-8") as f:
+            json.dump({"generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                       "count": len(pois), "items": pois}, f, ensure_ascii=False, separators=(",", ":"))
+
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
 
@@ -1156,6 +1258,7 @@ def main():
         "lines": [{"corridor": c, "label": LINE_LABELS[c], "stops": stops}
                   for c, stops in LINES.items()],
         "transit": transit,   # metro + letbane overlay (None if the fetch failed)
+        "railGeom": rail_geom,   # real S-train track geometry per ref (issue #6)
         "hasSold": bool(sold),   # realised sold-price data available this build
         "hasMortgage": bool(mortgage),   # realkreditrenter available this build
     }
