@@ -35,6 +35,7 @@ jobs:
           git add data/listings.json data/meta.json data/geo.json data/history.json data/tracker.json data/priceindex.json data/bvc.json
           git add data/sold.json 2>/dev/null || true   # optional — only present when the sold fetch succeeds
           git add data/mortgage.json 2>/dev/null || true   # optional — realkreditrenter
+          git add data/poi.json 2>/dev/null || true   # optional — amenities overlay (issue #7)
           if git diff --cached --quiet; then
             echo "No changes in listings — nothing to commit."
           else
