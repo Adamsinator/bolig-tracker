@@ -1270,27 +1270,21 @@ function drawTransit() {
   MAP.L.transit.clearLayers();
   const tr = S.meta && S.meta.transit; if (!tr) return;
   const mid = (METRO_REF_ORDER.length - 1) / 2;
-  const known = [], unknown = [];   // draw unknown first (underneath), known on top
+  // transit.lines is now one entry per metro line (M1–M4) from route relations,
+  // already deduped to a single track — draw one polyline per line, nudged
+  // sideways by ref so lines sharing a tunnel render as parallel strands.
   (tr.lines || []).forEach(ln => {
-    const tagCol = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour).toLowerCase() : null;
-    // resolve to a canonical line ref via the ref tag first, then the colour tag
-    const ref = (ln.ref && METRO_REFS[ln.ref]) ? ln.ref : (tagCol && METRO_COL_REF[tagCol]) || null;
-    const refCol = ref && METRO_REFS[ref];
-    const idx = ref ? METRO_REF_ORDER.indexOf(ref) : -1;
+    const refCol = METRO_REFS[ln.ref];
+    const tagCol = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour) : null;
+    const c = refCol || tagCol || METRO_COLORS.metro;
+    const idx = METRO_REF_ORDER.indexOf(ln.ref);
     const off = idx >= 0 ? (idx - mid) * METRO_OFFSET_M : 0;
-    // only lines that resolve to a real metro ref (M1–M4) or the letbane get a
-    // colour + offset; unrecognised/untagged ways go grey underneath so stray
-    // OSM colours don't paint phantom lines through the centre
-    const isKnown = ln.mode === 'letbane' || !!refCol;
-    const c = ln.mode === 'letbane' ? METRO_COLORS.letbane : (refCol || METRO_COLORS.metro);
-    (ln.segs || []).forEach(seg => (isKnown ? known : unknown).push({ seg: offsetLatLngs(seg, off), c, mode: ln.mode, known: isKnown }));
+    (ln.segs || []).forEach(seg => L.polyline(offsetLatLngs(seg, off), { renderer: MAP.transitRenderer,
+      color: c, weight: 1.4, opacity: 0.7, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit));
   });
-  const add = o => L.polyline(o.seg, { renderer: MAP.transitRenderer, color: o.c, weight: o.known ? 1.4 : 1.0, opacity: o.known ? 0.65 : 0.35,
-    lineCap: 'round', lineJoin: 'round', dashArray: o.mode === 'letbane' ? '2 6' : null }).addTo(MAP.L.transit);
-  unknown.forEach(add); known.forEach(add);
   (tr.stations || []).forEach(st => {
     L.circleMarker([st.lat, st.lon], { renderer: MAP.transitRenderer, radius: 3, color: '#4b5563', weight: 1.6, fillColor: cssVar('--surface'), fillOpacity: 1 })
-      .addTo(MAP.L.transit).bindTooltip(esc(st.name) + ' · ' + (st.mode === 'letbane' ? 'Letbane' : 'Metro'), { direction: 'top', offset: [0, -4] });
+      .addTo(MAP.L.transit).bindTooltip(esc(st.name) + ' · Metro', { direction: 'top', offset: [0, -4] });
   });
   drawTransitLabels();
 }
@@ -1327,11 +1321,17 @@ function drawRail() {
       (rg[ref] || []).forEach(seg => L.polyline(seg, { renderer: MAP.renderer, color: c,
         weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.rail));
     });
-    // Kystbanen (regional) isn't in railGeom — keep its station-based dashed line.
-    (S.meta.lines || []).filter(Ln => Ln.corridor === 'kystbanen').forEach(Ln => {
-      const pts = Ln.stops.map(n => stMap[n]).filter(Boolean).map(s => [s.lat, s.lon]);
-      L.polyline(pts, { color: col.kystbanen, weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: '3 7' }).addTo(MAP.L.rail);
-    });
+    // Kystbanen (regional): real track geometry (key "kyst") if present, else
+    // fall back to the station-based dashed line.
+    if (rg.kyst) {
+      rg.kyst.forEach(seg => L.polyline(seg, { renderer: MAP.renderer, color: col.kystbanen,
+        weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: '3 7' }).addTo(MAP.L.rail));
+    } else {
+      (S.meta.lines || []).filter(Ln => Ln.corridor === 'kystbanen').forEach(Ln => {
+        const pts = Ln.stops.map(n => stMap[n]).filter(Boolean).map(s => [s.lat, s.lon]);
+        L.polyline(pts, { color: col.kystbanen, weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: '3 7' }).addTo(MAP.L.rail);
+      });
+    }
     return;
   }
   // Fallback (no geometry available): the old straight station-to-station lines.
