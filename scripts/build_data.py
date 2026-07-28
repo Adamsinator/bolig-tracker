@@ -770,10 +770,40 @@ def fetch_transit():
         if segs:
             lines.append({"ref": ref, "mode": "metro",
                           "colour": t.get("colour") or t.get("color"), "segs": segs})
+    n_metro = len(lines)
+
+    # Local light-rail lines (Nærumbanen, Gribskovbanen): route=light_rail
+    # relations that aren't S-tog. Wider corridor bbox so Gribskovbanen (north of
+    # Hillerød) is caught; one polyline per line, labelled by name.
+    LOKAL_NAMES = {"910": "Nærumbanen", "L41": "Gribskovbanen"}
+    s2, w2, n2, e2 = CORRIDOR_BBOX
+    lok = _overpass(f'[out:json][timeout:90];rel["route"="light_rail"]({s2},{w2},{n2},{e2});out geom;')
+    seen_lokal = set()
+    for r in (lok or {}).get("elements", []):
+        t = r.get("tags", {}) or {}
+        name = t.get("name") or ""
+        if "s-tog" in name.lower():
+            continue
+        ref = (t.get("ref") or "").strip()
+        base = name.split(":")[0].strip() or ref
+        if not base or base in seen_lokal:
+            continue
+        seen_lokal.add(base)
+        segs = []
+        for m in r.get("members", []):
+            g = m.get("geometry")
+            if m.get("type") != "way" or not g or len(g) < 2:
+                continue
+            segs.append(_rdp([[round(p["lat"], 5), round(p["lon"], 5)] for p in g], 0.00012))
+        if segs:
+            lines.append({"ref": ref or base, "mode": "lokal",
+                          "name": LOKAL_NAMES.get(ref) or base,
+                          "colour": t.get("colour") or t.get("color"), "segs": segs})
 
     if not lines and not stations:
         return None
-    print(f"  transit: {len(lines)} metro lines { {d['ref']: len(d['segs']) for d in lines} }")
+    print(f"  transit: {n_metro} metro lines, {len(lines) - n_metro} lokalbaner "
+          f"{[d.get('name', d['ref']) for d in lines if d['mode'] == 'lokal']}")
     return {"lines": lines, "stations": stations}
 
 

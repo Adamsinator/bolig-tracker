@@ -1145,6 +1145,7 @@ const POI_STYLE = {
   childcare:    { c: '#ad1457', label: 'Daginstitution' },
 };
 const POI_ZOOM = 13;   // amenities are dense — only label/draw them zoomed in
+const LOKAL_COLOR = '#8a6d3b';   // local light rail (Nærumbanen / Gribskovbanen)
 
 function isDark() { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
 function tileUrl() {
@@ -1274,6 +1275,11 @@ function drawTransit() {
   // already deduped to a single track — draw one polyline per line, nudged
   // sideways by ref so lines sharing a tunnel render as parallel strands.
   (tr.lines || []).forEach(ln => {
+    if (ln.mode === 'lokal') {   // Nærumbanen / Gribskovbanen — dashed, own colour
+      (ln.segs || []).forEach(seg => L.polyline(seg, { renderer: MAP.transitRenderer,
+        color: LOKAL_COLOR, weight: 1.3, opacity: 0.7, dashArray: '2 5', lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit));
+      return;
+    }
     const refCol = METRO_REFS[ln.ref];
     const tagCol = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour) : null;
     const c = refCol || tagCol || METRO_COLORS.metro;
@@ -1564,6 +1570,7 @@ function renderMapLegend(colorBy, f, lineColors) {
     if (lines.some(l => l.mode === 'metro' && !METRO_REF_ORDER.includes(l.ref)) && !refs.length)
       box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
     if (lines.some(l => l.mode === 'letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
+    lines.filter(l => l.mode === 'lokal').forEach(l => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${LOKAL_COLOR}` }), l.name || l.ref)));
   }
   if (S.showPois && S.poi) box.append(legItem(POI_STYLE.supermarket.c, 'Indkøb'), legItem(POI_STYLE.school.c, 'Skole'), legItem(POI_STYLE.kindergarten.c, 'Daginstitution'));
 }
