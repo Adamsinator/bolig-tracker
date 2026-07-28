@@ -733,42 +733,47 @@ def _overpass(query):
 
 def fetch_transit():
     s, w, n, e = TRANSIT_BBOX
-    # Two independent queries. Stations power the near-metro distance and are
-    # cheap, so we fetch them separately from the heavier line geometry — a
-    # timeout on one no longer wipes out the other.
+    # Metro stations (station=subway). We drop light_rail stations/lines: in this
+    # area those are Nærumbanen/Gribskovbanen local trains, not the metro or the
+    # Ring 3 letbane, and were being mislabelled "Letbane".
     stations, seen = [], set()
     sdata = _overpass(
-        f'[out:json][timeout:30];'
-        f'(node["station"="subway"]({s},{w},{n},{e});'
-        f'node["station"="light_rail"]({s},{w},{n},{e}););out body;')
+        f'[out:json][timeout:60];node["station"="subway"]({s},{w},{n},{e});out body;')
     for el in (sdata or {}).get("elements", []):
         tags = el.get("tags") or {}
         if el.get("type") == "node" and tags.get("name"):
             key = (round(el["lat"], 4), round(el["lon"], 4))
             if key not in seen:
                 seen.add(key)
-                mode = "letbane" if tags.get("station") == "light_rail" else "metro"
-                stations.append({"name": tags["name"], "mode": mode,
+                stations.append({"name": tags["name"], "mode": "metro",
                                  "lat": round(el["lat"], 5), "lon": round(el["lon"], 5)})
-    print(f"  transit: {len(stations)} stations fetched")
+    print(f"  transit: {len(stations)} metro stations fetched")
 
-    lines = []
+    # Metro lines from route=subway relations: one clean polyline per line ref
+    # (M1–M4) taking a single direction's track, instead of drawing both physical
+    # tracks of both directions as parallel lines.
+    lines, seen_ref = [], set()
     ldata = _overpass(
-        f'[out:json][timeout:30];'
-        f'(way["railway"="subway"]({s},{w},{n},{e});'
-        f'way["railway"="light_rail"]({s},{w},{n},{e}););out geom;')
-    for el in (ldata or {}).get("elements", []):
-        tags = el.get("tags") or {}
-        if el.get("type") == "way" and tags.get("railway") in ("subway", "light_rail") and el.get("geometry"):
-            mode = "metro" if tags["railway"] == "subway" else "letbane"
-            seg = [[round(p["lat"], 5), round(p["lon"], 5)] for p in el["geometry"]]
-            if len(seg) > 1:
-                lines.append({"mode": mode, "ref": tags.get("ref") or "",
-                              "colour": tags.get("colour") or tags.get("color"), "segs": [seg]})
+        f'[out:json][timeout:90];rel["route"="subway"]({s},{w},{n},{e});out geom;')
+    for r in (ldata or {}).get("elements", []):
+        t = r.get("tags", {}) or {}
+        ref = (t.get("ref") or "").strip()
+        if not ref or ref in seen_ref:
+            continue
+        seen_ref.add(ref)
+        segs = []
+        for m in r.get("members", []):
+            g = m.get("geometry")
+            if m.get("type") != "way" or not g or len(g) < 2:
+                continue
+            segs.append(_rdp([[round(p["lat"], 5), round(p["lon"], 5)] for p in g], 0.0001))
+        if segs:
+            lines.append({"ref": ref, "mode": "metro",
+                          "colour": t.get("colour") or t.get("color"), "segs": segs})
 
     if not lines and not stations:
         return None
-    print(f"  transit: {len(lines)} line segments fetched")
+    print(f"  transit: {len(lines)} metro lines { {d['ref']: len(d['segs']) for d in lines} }")
     return {"lines": lines, "stations": stations}
 
 
@@ -833,7 +838,23 @@ def fetch_rail_geometry():
                     continue
                 seg_set.add(key)
                 segs.append(_rdp(seg, 0.00012))
-        print(f"  rail: S-tog geometry by ref { {k: len(v) for k, v in by_ref.items()} }")
+        # Kystbanen (regional coast line, Klampenborg → Helsingør) has no route
+        # relation, but its rails are tagged railway=rail, name="Kystbanen".
+        # Fetch the infrastructure and store it under the "kyst" key.
+        kdata = _overpass(f'[out:json][timeout:120];way["railway"="rail"]["name"="Kystbanen"]({s},{w},{n},{e});out geom;')
+        kyst, kseen = [], set()
+        for el in (kdata or {}).get("elements", []):
+            g = el.get("geometry")
+            if el.get("type") == "way" and g and len(g) > 1:
+                seg = [[round(p["lat"], 5), round(p["lon"], 5)] for p in g]
+                key = (seg[0][0], seg[0][1], seg[-1][0], seg[-1][1], len(seg))
+                if key in kseen:
+                    continue
+                kseen.add(key)
+                kyst.append(_rdp(seg, 0.00012))
+        if kyst:
+            by_ref["kyst"] = kyst
+        print(f"  rail: geometry by ref { {k: len(v) for k, v in by_ref.items()} }")
         return by_ref or None
     except Exception as ex:
         print(f"  rail geometry fetch failed ({ex})", file=sys.stderr)
