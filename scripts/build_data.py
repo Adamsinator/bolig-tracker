@@ -1231,6 +1231,61 @@ def annotate_comps(listings, points):
     return done
 
 
+def annotate_poi_distance(listings, pois):
+    """Issue #7: add each listing's straight-line distance (metres) to the nearest
+    supermarket / school / daycare, from data/poi.json, as r['poi']={'sup','sch',
+    'day'}. Uses a coarse grid prefilter for speed, falling back to all points.
+    Fail-soft: no pois → no-op."""
+    if not pois:
+        return
+    kmap = {"supermarket": "sup", "school": "sch", "kindergarten": "day", "childcare": "day"}
+    CELL = 0.02   # ~2.2 km latitude cells
+    grids = {"sup": {}, "sch": {}, "day": {}}
+    allpts = {"sup": [], "sch": [], "day": []}
+    for p in pois:
+        k = kmap.get(p.get("k"))
+        if not k:
+            continue
+        la, lo = p.get("lat"), p.get("lon")
+        if la is None or lo is None:
+            continue
+        grids[k].setdefault((int(la / CELL), int(lo / CELL)), []).append((la, lo))
+        allpts[k].append((la, lo))
+
+    def nearest(lat, lon, k):
+        clat = math.cos(math.radians(lat))
+        ci, cj = int(lat / CELL), int(lon / CELL)
+        cand = []
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
+                cand += grids[k].get((ci + di, cj + dj), [])
+        if not cand:
+            cand = allpts[k]
+        best = None
+        for a, b in cand:
+            dy = (a - lat) * 110540.0
+            dx = (b - lon) * 111320.0 * clat
+            d = dx * dx + dy * dy
+            if best is None or d < best:
+                best = d
+        return int(best ** 0.5) if best is not None else None
+
+    n = 0
+    for r in listings:
+        lat, lon = r.get("lat"), r.get("lon")
+        if lat is None or lon is None:
+            continue
+        pd = {}
+        for k in ("sup", "sch", "day"):
+            d = nearest(lat, lon, k)
+            if d is not None:
+                pd[k] = d
+        if pd:
+            r["poi"] = pd
+            n += 1
+    print(f"  poi distances: annotated {n}/{len(listings)} listings")
+
+
 def main():
     out = []
     counts = {"condo": 0, "villa": 0}
@@ -1287,6 +1342,7 @@ def main():
         with open(poi_path, "w", encoding="utf-8") as f:
             json.dump({"generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                        "count": len(pois), "items": pois}, f, ensure_ascii=False, separators=(",", ":"))
+    annotate_poi_distance(listings, pois)
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
