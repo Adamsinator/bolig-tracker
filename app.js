@@ -1137,6 +1137,7 @@ const BIG_STATIONS = new Set(['København H', 'Hellerup', 'Nørreport', 'Lyngby'
 // S-tog line colours (issue #6) — one per real line ref from meta.railGeom.
 const STOG_COLORS = { A: '#1a9850', B: '#8c510a', Bx: '#bf9b30', C: '#e08214', E: '#2166ac', F: '#d6604d', H: '#01665e' };
 const STOG_ORDER = ['A', 'B', 'Bx', 'C', 'E', 'F', 'H'];
+const STOG_OFFSET_M = 12;   // sideways spacing so lines sharing track show as parallel strands
 // Amenity overlay (issue #7) — data/poi.json. childcare folds into daginstitution.
 const POI_STYLE = {
   supermarket:  { c: '#2e7d32', label: 'Indkøb' },
@@ -1145,6 +1146,7 @@ const POI_STYLE = {
   childcare:    { c: '#ad1457', label: 'Daginstitution' },
 };
 const POI_ZOOM = 13;   // amenities are dense — only label/draw them zoomed in
+const LOKAL_COLOR = '#8a6d3b';   // local light rail (Nærumbanen / Gribskovbanen)
 
 function isDark() { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
 function tileUrl() {
@@ -1274,6 +1276,11 @@ function drawTransit() {
   // already deduped to a single track — draw one polyline per line, nudged
   // sideways by ref so lines sharing a tunnel render as parallel strands.
   (tr.lines || []).forEach(ln => {
+    if (ln.mode === 'lokal') {   // Nærumbanen / Gribskovbanen — dashed, own colour
+      (ln.segs || []).forEach(seg => L.polyline(seg, { renderer: MAP.transitRenderer,
+        color: LOKAL_COLOR, weight: 1.3, opacity: 0.7, dashArray: '2 5', lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit));
+      return;
+    }
     const refCol = METRO_REFS[ln.ref];
     const tagCol = ln.colour && /^#?[0-9a-fA-F]{6}$/.test(ln.colour) ? (ln.colour[0] === '#' ? ln.colour : '#' + ln.colour) : null;
     const c = refCol || tagCol || METRO_COLORS.metro;
@@ -1316,9 +1323,11 @@ function drawRail() {
   const rg = S.meta.railGeom;
   if (rg && Object.keys(rg).length) {
     // Real S-tog track geometry, one colour per line ref (A/B/Bx/C/E/F/H).
+    const smid = (STOG_ORDER.length - 1) / 2;
     STOG_ORDER.filter(ref => rg[ref]).forEach(ref => {
       const c = STOG_COLORS[ref] || col.central;
-      (rg[ref] || []).forEach(seg => L.polyline(seg, { renderer: MAP.renderer, color: c,
+      const off = (STOG_ORDER.indexOf(ref) - smid) * STOG_OFFSET_M;
+      (rg[ref] || []).forEach(seg => L.polyline(offsetLatLngs(seg, off), { renderer: MAP.renderer, color: c,
         weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.rail));
     });
     // Kystbanen (regional): real track geometry (key "kyst") if present, else
@@ -1564,6 +1573,7 @@ function renderMapLegend(colorBy, f, lineColors) {
     if (lines.some(l => l.mode === 'metro' && !METRO_REF_ORDER.includes(l.ref)) && !refs.length)
       box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
     if (lines.some(l => l.mode === 'letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
+    lines.filter(l => l.mode === 'lokal').forEach(l => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${LOKAL_COLOR}` }), l.name || l.ref)));
   }
   if (S.showPois && S.poi) box.append(legItem(POI_STYLE.supermarket.c, 'Indkøb'), legItem(POI_STYLE.school.c, 'Skole'), legItem(POI_STYLE.kindergarten.c, 'Daginstitution'));
 }
