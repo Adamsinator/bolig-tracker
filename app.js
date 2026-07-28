@@ -1137,6 +1137,7 @@ const BIG_STATIONS = new Set(['København H', 'Hellerup', 'Nørreport', 'Lyngby'
 // S-tog line colours (issue #6) — one per real line ref from meta.railGeom.
 const STOG_COLORS = { A: '#1a9850', B: '#8c510a', Bx: '#bf9b30', C: '#e08214', E: '#2166ac', F: '#d6604d', H: '#01665e' };
 const STOG_ORDER = ['A', 'B', 'Bx', 'C', 'E', 'F', 'H'];
+const STOG_OFFSET_M = 12;   // sideways spacing so lines sharing track show as parallel strands
 // Amenity overlay (issue #7) — data/poi.json. childcare folds into daginstitution.
 const POI_STYLE = {
   supermarket:  { c: '#2e7d32', label: 'Indkøb' },
@@ -1322,9 +1323,11 @@ function drawRail() {
   const rg = S.meta.railGeom;
   if (rg && Object.keys(rg).length) {
     // Real S-tog track geometry, one colour per line ref (A/B/Bx/C/E/F/H).
+    const smid = (STOG_ORDER.length - 1) / 2;
     STOG_ORDER.filter(ref => rg[ref]).forEach(ref => {
       const c = STOG_COLORS[ref] || col.central;
-      (rg[ref] || []).forEach(seg => L.polyline(seg, { renderer: MAP.renderer, color: c,
+      const off = (STOG_ORDER.indexOf(ref) - smid) * STOG_OFFSET_M;
+      (rg[ref] || []).forEach(seg => L.polyline(offsetLatLngs(seg, off), { renderer: MAP.renderer, color: c,
         weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.rail));
     });
     // Kystbanen (regional): real track geometry (key "kyst") if present, else
