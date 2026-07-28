@@ -6,6 +6,7 @@ const S = {
   all: [], type: 'all', munis: new Set(), nearTransit: null,
   priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null,
   lotMin: null, floorMin: null, yearMin: null, daysMax: null, energyMin: null,
+  poiSup: null, poiSch: null, poiDay: null,   // max metres to shop/school/daycare (#7)
   hasBasement: false, hasElevator: false, hasBalcony: false,
   search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, showMetro: true, showPois: false, trackerMap: null, onlyCut: false,
   favs: {}, onlyFav: false, cmpA: null, cmpB: null, onlyNew: false, hideHf: false,
@@ -124,6 +125,7 @@ function initUI() {
   on('#priceMin', 'priceMin', 1); on('#priceMax', 'priceMax', 1); on('#rooms', 'rooms', 1);
   on('#areaMin', 'areaMin', 1); on('#areaMax', 'areaMax', 1); on('#lotMin', 'lotMin', 1);
   on('#floorMin', 'floorMin', 1); on('#yearMin', 'yearMin', 1); on('#daysMax', 'daysMax', 1);
+  on('#poiSup', 'poiSup', 1); on('#poiSch', 'poiSch', 1); on('#poiDay', 'poiDay', 1);
   on('#energyMin', 'energyMin'); on('#hasBasement', 'hasBasement'); on('#hasElevator', 'hasElevator');
   on('#hasBalcony', 'hasBalcony'); on('#colorBy', 'colorBy'); on('#sort', 'sort');
   on('#nearTransit', 'nearTransit'); on('#onlyCut', 'onlyCut'); on('#onlyFav', 'onlyFav'); on('#onlyNew', 'onlyNew'); on('#hideHf', 'hideHf');
@@ -197,14 +199,14 @@ function initUI() {
 
 function resetFilters() {
   Object.assign(S, { priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null, lotMin: null,
-    floorMin: null, yearMin: null, daysMax: null, energyMin: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false, hideHf: false });
-  ['#priceMin', '#priceMax', '#rooms', '#areaMin', '#areaMax', '#lotMin', '#floorMin', '#yearMin', '#daysMax', '#energyMin'].forEach(id => $(id).value = '');
+    floorMin: null, yearMin: null, daysMax: null, energyMin: null, poiSup: null, poiSch: null, poiDay: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false, hideHf: false });
+  ['#priceMin', '#priceMax', '#rooms', '#areaMin', '#areaMax', '#lotMin', '#floorMin', '#yearMin', '#daysMax', '#energyMin', '#poiSup', '#poiSch', '#poiDay'].forEach(id => $(id).value = '');
   ['#hasBasement', '#hasElevator', '#hasBalcony', '#onlyCut', '#onlyNew', '#hideHf'].forEach(id => $(id).checked = false);
   S.shown = 60; render();
 }
 function activeFilterCount() {
   let n = 0;
-  ['priceMin', 'priceMax', 'rooms', 'areaMin', 'areaMax', 'lotMin', 'floorMin', 'yearMin', 'daysMax', 'energyMin'].forEach(k => { if (S[k]) n++; });
+  ['priceMin', 'priceMax', 'rooms', 'areaMin', 'areaMax', 'lotMin', 'floorMin', 'yearMin', 'daysMax', 'energyMin', 'poiSup', 'poiSch', 'poiDay'].forEach(k => { if (S[k]) n++; });
   ['hasBasement', 'hasElevator', 'hasBalcony', 'onlyCut', 'onlyNew', 'hideHf'].forEach(k => { if (S[k]) n++; });
   if (S.nearTransit) n++;
   return n;
@@ -318,6 +320,9 @@ function filtered() {
     if (S.yearMin && (r.y || 0) < S.yearMin) return false;
     if (S.daysMax && (r.d || 0) > S.daysMax) return false;
     if (S.energyMin && energyRank(r.e) < energyRank(S.energyMin)) return false;
+    if (S.poiSup && !(r.poi && r.poi.sup != null && r.poi.sup <= S.poiSup)) return false;
+    if (S.poiSch && !(r.poi && r.poi.sch != null && r.poi.sch <= S.poiSch)) return false;
+    if (S.poiDay && !(r.poi && r.poi.day != null && r.poi.day <= S.poiDay)) return false;
     if (S.hasBasement && !(r.bsm > 0)) return false;
     if (S.hasElevator && !r.elev) return false;
     if (S.hasBalcony && !r.balc) return false;
@@ -1729,6 +1734,14 @@ function card(r) {
   if (r.e) meta.append(el('span', {}, `E: ${String(r.e).toUpperCase().replace('2015', ' 2015')}`));
   if (r.d != null) meta.append(el('span', {}, `${r.d} dage`));
   if (r.chg < 0) meta.append(el('span', { class: 'cut' }, `↓ ${Math.abs(r.chg).toLocaleString('da-DK', { maximumFractionDigits: 1 })} %`));
+  if (r.poi) {
+    const fmtM = m => m < 950 ? m + ' m' : (m / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km';
+    const pp = [];
+    if (r.poi.sup != null) pp.push('🛒 ' + fmtM(r.poi.sup));
+    if (r.poi.sch != null) pp.push('🏫 ' + fmtM(r.poi.sch));
+    if (r.poi.day != null) pp.push('🧸 ' + fmtM(r.poi.day));
+    if (pp.length) meta.append(el('span', { class: 'poi-dist', title: 'Afstand til nærmeste indkøb · skole · daginstitution' }, pp.join(' · ')));
+  }
   if (S.A || S.B) {
     const parts = [];
     if (S.A) parts.push('🏠 ' + haversine(r.lat, r.lon, S.A.lat, S.A.lon).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km');

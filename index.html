@@ -90,6 +90,12 @@
           <select id="daysMax"><option value="">Alle</option><option>14</option><option>30</option><option>60</option><option>90</option><option>180</option></select></label>
         <label class="filter"><span>Energimærke (mindst)</span>
           <select id="energyMin"><option value="">Alle</option><option>a</option><option>b</option><option>c</option><option>d</option><option>e</option></select></label>
+        <label class="filter"><span>Maks. m til indkøb</span>
+          <select id="poiSup"><option value="">Alle</option><option>300</option><option>500</option><option>800</option><option>1200</option><option>2000</option></select></label>
+        <label class="filter"><span>Maks. m til skole</span>
+          <select id="poiSch"><option value="">Alle</option><option>500</option><option>800</option><option>1200</option><option>2000</option><option>3000</option></select></label>
+        <label class="filter"><span>Maks. m til daginstitution</span>
+          <select id="poiDay"><option value="">Alle</option><option>300</option><option>500</option><option>800</option><option>1200</option><option>2000</option></select></label>
         <label class="filter check"><input type="checkbox" id="hasBasement"> Kælder</label>
         <label class="filter check"><input type="checkbox" id="hasElevator"> Elevator</label>
         <label class="filter check"><input type="checkbox" id="hasBalcony"> Altan/terrasse</label>
@@ -314,7 +320,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=52"></script>
+<script src="app.js?v=53"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
