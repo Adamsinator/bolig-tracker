@@ -1398,12 +1398,12 @@ function drawBoundaries() {
       L.polygon(ring.map(p => [p[1], p[0]]), choro ? {
         color: cssVar('--muted'), weight: sel ? 1.5 : 1, opacity: sel ? 0.7 : 0.3,
         fill: choroFill && sel, fillColor: choroFill ? choro.scale(choro.med[m.slug]) : 'transparent', fillOpacity: choroFill && sel ? 0.72 : 0,
-        interactive: false,
+        interactive: false, renderer: MAP.renderer,
       } : {
         color: sel ? cssVar('--land-sel-edge') : cssVar('--muted'),
         weight: sel ? 2 : 1, opacity: partial ? (sel ? 0.95 : 0.28) : 0.5,
         fill: partial && sel, fillColor: cssVar('--condo'), fillOpacity: 0.07,
-        interactive: false,
+        interactive: false, renderer: MAP.renderer,
       }).addTo(MAP.L.boundaries);
     });
   });
@@ -1729,6 +1729,7 @@ function card(r) {
   const meta = el('div', { class: 'meta' });
   meta.append(el('span', {}, el('b', {}, m2(r.m2p))));
   if (r.a) meta.append(el('span', {}, `${r.a} m²`));
+  if (r.t === 'villa' && r.lot) meta.append(el('span', {}, `grund ${r.lot.toLocaleString('da-DK')} m²`));
   if (r.r) meta.append(el('span', {}, `${r.r} vær.`));
   if (r.y) meta.append(el('span', {}, `opf. ${r.y}`));
   if (r.e) meta.append(el('span', {}, `E: ${String(r.e).toUpperCase().replace('2015', ' 2015')}`));
