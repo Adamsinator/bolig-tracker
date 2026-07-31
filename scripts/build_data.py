@@ -45,7 +45,32 @@ MUNICIPALITIES = {
     "fredensborg":     ("Fredensborg", 210),
 }
 MUNI_NAME = {s: v[0] for s, v in MUNICIPALITIES.items()}
-TYPES = ["condo", "villa"]  # ejerlejlighed, villa
+TYPES = ["condo", "villa"]  # the two addressTypes filters we query boligsiden with
+
+# boligsiden's raw addressType → our house/apartment split. The two query filters
+# don't line up with the real thing (the villa filter returns farms, hobby farms
+# and fritidshuse; the condo filter returns rækkehuse), so classify on the raw
+# value: anything you live in with your own ground is a "villa" (house), anything
+# that is a flat in a larger building is a "condo" (lejlighed).
+ADDR_TYPE_T = {
+    "villa": "villa",
+    "terraced house": "villa",      # rækkehus
+    "farm": "villa",                # landejendom
+    "hobby farm": "villa",          # hobbylandbrug
+    "holiday house": "villa",       # fritidshus
+    "condo": "condo",
+    "villa apartment": "condo",     # villalejlighed — a flat, not a house
+}
+# precise Danish label kept for display, so a rækkehus doesn't read as "Villa"
+ADDR_TYPE_DA = {
+    "villa": "Villa",
+    "terraced house": "Rækkehus",
+    "farm": "Landejendom",
+    "hobby farm": "Hobbylandbrug",
+    "holiday house": "Fritidshus",
+    "condo": "Ejerlejl.",
+    "villa apartment": "Villalejl.",
+}
 
 # "Near the S-train" heuristic (metres, straight-line to nearest S-train station).
 # 1 km ≈ a 12-min walk — a realistic catchment. (Metro uses a tighter 500 m on the
@@ -99,10 +124,17 @@ def haversine_m(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
+# Station list used for the near-S-train distances and the map. Starts as the
+# curated corridor list and is extended at runtime with the real S-tog stops
+# fetched from OSM (Frederikssund, Favrholm, Høje Taastrup, Køge …), which the
+# hardcoded list never covered.
+ALL_STATIONS = list(STATIONS)
+
+
 def nearest_station(lat, lon):
     """Return (name, corridor, dist_m, is_strain) for the closest rail station."""
     best = None
-    for name, corridor, slat, slon, strain in STATIONS:
+    for name, corridor, slat, slon, strain in ALL_STATIONS:
         d = haversine_m(lat, lon, slat, slon)
         if best is None or d < best[2]:
             best = (name, corridor, d, strain)
@@ -146,7 +178,7 @@ def has_land_encumbrance(case):
         return False
 
 
-def trim(case):
+def trim(case, qtype=None):
     addr = case.get("address") or {}
     coords = case.get("coordinates") or {}
     lat, lon = coords.get("lat"), coords.get("lon")
@@ -155,13 +187,20 @@ def trim(case):
     st_name, st_corr, st_d, st_is = nearest_station(lat, lon)
     # nearest S-train specifically (may differ from overall nearest)
     strain_only = min(
-        (s for s in STATIONS if s[4]),
+        (s for s in ALL_STATIONS if s[4]),
         key=lambda s: haversine_m(lat, lon, s[2], s[3]),
     )
     strain_d = haversine_m(lat, lon, strain_only[2], strain_only[3])
     return {
         "id": case.get("caseID"),
-        "t": "villa" if case.get("addressType") == "villa" else "condo",
+        # House vs. apartment is decided by boligsiden's own addressType, mapped
+        # through HOUSE_TYPES — the query filter alone isn't enough in either
+        # direction: its villa filter also returns farms/fritidshuse, and its
+        # condo filter returns rækkehuse. Unknown/missing types fall back to the
+        # queried filter. "sub" keeps the precise Danish label for the card.
+        "t": ADDR_TYPE_T.get(str(case.get("addressType") or "").strip().lower())
+             or (qtype if qtype in ("condo", "villa") else "condo"),
+        "sub": ADDR_TYPE_DA.get(str(case.get("addressType") or "").strip().lower()),
         "p": case.get("priceCash"),
         "m2p": case.get("perAreaPrice"),
         "a": case.get("housingArea"),
@@ -891,6 +930,55 @@ def fetch_rail_geometry():
         return None
 
 
+def fetch_stog_stations(rail_geom):
+    """Real S-tog stops from the OSM route relations, so the map isn't limited to
+    the curated corridor list (which stopped at Hillerød and left Frederikssund,
+    Favrholm, Høje Taastrup, Køge … off). Each stop is assigned to the line whose
+    geometry runs closest. Fail-soft: returns [] on any error."""
+    try:
+        s, w, n, e = CORRIDOR_BBOX
+        data = _overpass(
+            f'[out:json][timeout:120];rel["route"="light_rail"]["name"~"S-tog"]({s},{w},{n},{e});'
+            f'node(r)->.n;.n out body;')
+        seen = {name.lower() for name, *_ in ALL_STATIONS}
+        found = []
+        for el in (data or {}).get("elements", []):
+            t = el.get("tags") or {}
+            name = (t.get("name") or "").strip()
+            if not name or el.get("type") != "node":
+                continue
+            # keep real stations/stops, skip level crossings and signals
+            if not (t.get("railway") in ("station", "halt", "stop")
+                    or t.get("public_transport") in ("station", "stop_position")):
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append((name, el["lat"], el["lon"]))
+        # assign each new stop to the nearest line ref (for the map colour)
+        added = []
+        for name, la, lo in found:
+            best_ref, best_d = None, None
+            for ref, segs in (rail_geom or {}).items():
+                if ref == "kyst":
+                    continue
+                for seg in segs:
+                    for plat, plon in seg:
+                        d = (plat - la) ** 2 + ((plon - lo) * 0.56) ** 2
+                        if best_d is None or d < best_d:
+                            best_d, best_ref = d, ref
+            # ~1.5 km cutoff so unrelated stations in the bbox aren't pulled in
+            if best_ref and best_d is not None and best_d ** 0.5 < 0.015:
+                added.append((name, best_ref, round(la, 5), round(lo, 5), True))
+        print(f"  stations: +{len(added)} S-tog stops from OSM "
+              f"({', '.join(sorted(a[0] for a in added)[:12])}{' …' if len(added) > 12 else ''})")
+        return added
+    except Exception as ex:
+        print(f"  station fetch failed ({ex})", file=sys.stderr)
+        return []
+
+
 POI_KINDS = [
     ("supermarket",  '["shop"="supermarket"]'),
     ("school",       '["amenity"="school"]'),
@@ -1287,38 +1375,13 @@ def annotate_poi_distance(listings, pois):
 
 
 def main():
-    out = []
-    counts = {"condo": 0, "villa": 0}
-    for muni, (name, _code) in MUNICIPALITIES.items():
-        for t in TYPES:
-            got = 0
-            for case in fetch(muni, t):
-                rec = trim(case)
-                if rec is None:
-                    continue
-                out.append(rec)
-                counts[rec["t"]] += 1
-                got += 1
-            print(f"  {name:16} {t:6} {got}")
-    uniq = {r["id"]: r for r in out if r["id"]}
-    listings = list(uniq.values())
-
     here = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(here, "..", "data")
     os.makedirs(data_dir, exist_ok=True)
-
-    print("Fetching metro / letbane overlay…")
-    prev_transit = None
     meta_path = os.path.join(data_dir, "meta.json")
-    if os.path.exists(meta_path):
-        try:
-            with open(meta_path, encoding="utf-8") as f:
-                prev_transit = json.load(f).get("transit")
-        except Exception:
-            pass
-    transit = merge_transit(fetch_transit(), prev_transit)
-    annotate_metro(listings, transit)
 
+    # Rail geometry and the S-tog stop list come first: the per-listing
+    # nearest-station distances below are computed against ALL_STATIONS.
     print("Fetching S-train track geometry (issue #6)…")
     prev_rail = None
     if os.path.exists(meta_path):
@@ -1328,6 +1391,40 @@ def main():
         except Exception:
             pass
     rail_geom = fetch_rail_geometry() or prev_rail
+    ALL_STATIONS.extend(fetch_stog_stations(rail_geom))
+
+    out = []
+    counts = {"condo": 0, "villa": 0}
+    atypes = {}   # (queried type, raw addressType) -> n, to verify the mapping
+    for muni, (name, _code) in MUNICIPALITIES.items():
+        for t in TYPES:
+            got = 0
+            for case in fetch(muni, t):
+                rec = trim(case, t)
+                if rec is None:
+                    continue
+                k = (t, str(case.get("addressType")))
+                atypes[k] = atypes.get(k, 0) + 1
+                out.append(rec)
+                counts[rec["t"]] += 1
+                got += 1
+            print(f"  {name:16} {t:6} {got}")
+    print("  addressType vocabulary (queried → raw):")
+    for (qt, at), n in sorted(atypes.items(), key=lambda kv: -kv[1]):
+        print(f"    {qt:6} → {at:24} {n}")
+    uniq = {r["id"]: r for r in out if r["id"]}
+    listings = list(uniq.values())
+
+    print("Fetching metro / letbane overlay…")
+    prev_transit = None
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                prev_transit = json.load(f).get("transit")
+        except Exception:
+            pass
+    transit = merge_transit(fetch_transit(), prev_transit)
+    annotate_metro(listings, transit)
 
     print("Fetching amenities — supermarkets/schools/daycare (issue #7)…")
     pois = fetch_pois()
@@ -1398,7 +1495,7 @@ def main():
                            for s, v in MUNICIPALITIES.items()],
         "stations": [
             {"name": n, "corridor": c, "lat": la, "lon": lo, "strain": st}
-            for (n, c, la, lo, st) in STATIONS
+            for (n, c, la, lo, st) in ALL_STATIONS
         ],
         "lines": [{"corridor": c, "label": LINE_LABELS[c], "stops": stops}
                   for c, stops in LINES.items()],

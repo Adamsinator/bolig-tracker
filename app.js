@@ -749,7 +749,7 @@ function renderScatter(f) {
   svg.append(gDots);
   gDots.addEventListener('mousemove', e => {
     const t = e.target; if (t.tagName !== 'circle' || !t._r) return; const r = t._r;
-    showTip(`<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m²</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div>`, e.clientX, e.clientY);
+    showTip(`<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${homeTypeLabel(r)}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m²</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div>`, e.clientX, e.clientY);
   }, true);
   gDots.addEventListener('mouseout', hideTip, true);
 
@@ -1358,7 +1358,9 @@ function drawStations() {
   MAP.L.stations.clearLayers();
   const col = LINE_COLORS();
   S.meta.stations.forEach(s => {
-    L.circleMarker([s.lat, s.lon], { renderer: MAP.renderer, radius: s.strain ? 4 : 3, color: col[s.corridor], weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
+    // corridor is either a curated corridor name or a real S-tog line ref (A, C, …)
+    const sc = col[s.corridor] || STOG_COLORS[s.corridor] || col.central;
+    L.circleMarker([s.lat, s.lon], { renderer: MAP.renderer, radius: s.strain ? 4 : 3, color: sc, weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
       .addTo(MAP.L.stations).bindTooltip(esc(s.name) + (s.strain ? '' : ' · Kystbanen'), { direction: 'top', offset: [0, -4] });
   });
   drawStationLabels();
@@ -1408,8 +1410,13 @@ function drawBoundaries() {
     });
   });
 }
+// precise Danish type label (Rækkehus, Fritidshus, Villalejl. …) when the
+// build provides one; otherwise the coarse house/apartment split.
+// function declaration (not const) so it's hoisted — it's called from render
+// paths that run before this point in the file.
+function homeTypeLabel(r) { return r.sub || (r.t === 'villa' ? 'Villa' : 'Ejerlejl.'); }
 function listingTip(r) {
-  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}`;
+  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${homeTypeLabel(r)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}`;
 }
 // dots grow as you zoom in — keeps them visible and easy to hover/hit
 const radiusForZoom = z => Math.max(4, Math.min(11, 4 + (z - 10) * 1.15));
@@ -1618,7 +1625,7 @@ function fairValue() {
   // exclude homes with a kommune land-reversion clause — their asking price
   // reflects the encumbrance, not the home, and would distort the model
   const rows = S.all.filter(r => r.m2p > 0 && r.a > 0 && !r.hf);
-  const out = { pred: new Map(), resid: new Map(), r2: null };
+  const out = { pred: new Map(), resid: new Map(), r2: null, mape: null, lo: null, hi: null, n: rows.length, odd: new Set() };
   if (rows.length < 200) { _fv = out; return out; }
   const munis = [...new Set(rows.map(r => r.muni))].sort();
   const ER = { a: 7, b: 6, c: 5, d: 4, e: 3, f: 2, g: 1 };
@@ -1633,31 +1640,82 @@ function fairValue() {
   const hasComp = rows.some(r => r.cmpM2);
   const overallComp = hasComp ? median(rows.map(r => r.cmpM2).filter(Boolean)) : null;
   const compOf = r => r.cmpM2 || (S.sold && S.sold.byMuni[r.muni] && S.sold.byMuni[r.muni][r.t] && S.sold.byMuni[r.muni][r.t].medM2) || overallComp;
+  // walkability (issue #7): distance to the nearest shop / school / daycare.
+  // Median-imputed so a listing without the data doesn't read as "at the door".
+  const hasPoi = rows.some(r => r.poi && r.poi.sup != null);
+  const medPoi = {};
+  if (hasPoi) ['sup', 'sch', 'day'].forEach(k => { medPoi[k] = median(rows.map(r => r.poi && r.poi[k]).filter(v => v != null)) || 800; });
+  const poiOf = (r, k) => (r.poi && r.poi[k] != null) ? r.poi[k] : medPoi[k];
   const feat = r => {
-    const f = [1, Math.log(r.a), (r.r || 0), (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
+    const la = Math.log(r.a);
+    const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
+      (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
       (r.bsm > 0 ? 1 : 0), (Math.log((r.lot || 0) + 1) / 10), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
       (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
     if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
     if (hasComp) f.push(Math.log(compOf(r)) / 12);
+    if (hasPoi) f.push(Math.log(poiOf(r, 'sup') + 1) / 10, Math.log(poiOf(r, 'sch') + 1) / 10, Math.log(poiOf(r, 'day') + 1) / 10);
     for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
     return f;
   };
   const p = feat(rows[0]).length, n = rows.length;
   const y = rows.map(r => Math.log(r.m2p));
-  const XtX = Array.from({ length: p }, () => new Float64Array(p)), Xty = new Float64Array(p);
-  rows.forEach((r, i) => { const xi = feat(r), yi = y[i]; for (let a = 0; a < p; a++) { const xa = xi[a]; if (!xa) continue; Xty[a] += xa * yi; const row = XtX[a]; for (let b = 0; b < p; b++) row[b] += xa * xi[b]; } });
-  for (let a = 1; a < p; a++) XtX[a][a] += 1;   // ridge (leave intercept)
-  const A = XtX.map((row, i) => { const rr = Array.from(row); rr.push(Xty[i]); return rr; });
-  for (let c = 0; c < p; c++) {
-    let piv = c; for (let r = c + 1; r < p; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
-    [A[c], A[piv]] = [A[piv], A[c]];
-    const pv = A[c][c] || 1e-9; for (let j = c; j <= p; j++) A[c][j] /= pv;
-    for (let r = 0; r < p; r++) if (r !== c && A[r][c]) { const f = A[r][c]; for (let j = c; j <= p; j++) A[r][j] -= f * A[c][j]; }
+  const X = rows.map(feat);   // cache the design matrix — reused by every CV fold
+  // ridge-regularised normal equations, fitted on the given row indices
+  const fit = idx => {
+    const XtX = Array.from({ length: p }, () => new Float64Array(p)), Xty = new Float64Array(p);
+    for (const i of idx) {
+      const xi = X[i], yi = y[i];
+      for (let a = 0; a < p; a++) { const xa = xi[a]; if (!xa) continue; Xty[a] += xa * yi; const row = XtX[a]; for (let b = 0; b < p; b++) row[b] += xa * xi[b]; }
+    }
+    for (let a = 1; a < p; a++) XtX[a][a] += 1;   // ridge (leave intercept)
+    const A = XtX.map((row, i) => { const rr = Array.from(row); rr.push(Xty[i]); return rr; });
+    for (let c = 0; c < p; c++) {
+      let piv = c; for (let r = c + 1; r < p; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+      [A[c], A[piv]] = [A[piv], A[c]];
+      const pv = A[c][c] || 1e-9; for (let j = c; j <= p; j++) A[c][j] /= pv;
+      for (let r = 0; r < p; r++) if (r !== c && A[r][c]) { const f = A[r][c]; for (let j = c; j <= p; j++) A[r][j] -= f * A[c][j]; }
+    }
+    return A.map(r => r[p]);
+  };
+  const dot = (beta, xi) => { let s = 0; for (let k = 0; k < p; k++) s += beta[k] * xi[k]; return s; };
+
+  // 5-fold cross-validation: the honest accuracy is out-of-sample, so a home's
+  // own asking price never helps predict itself. Gives the reported error and
+  // the uncertainty band (in-sample R² alone would flatter the model).
+  const K = 5, cvErr = [];
+  const foldOf = i => i % K;
+  for (let k = 0; k < K; k++) {
+    const tr = [], te = [];
+    for (let i = 0; i < n; i++) (foldOf(i) === k ? te : tr).push(i);
+    if (tr.length < p + 10) continue;
+    const b = fit(tr);
+    for (const i of te) cvErr.push(y[i] - dot(b, X[i]));   // log-space residual
   }
-  const beta = A.map(r => r[p]);
+  if (cvErr.length > 50) {
+    const abs = cvErr.map(e => Math.abs(Math.exp(e) - 1)).sort((a, b) => a - b);
+    out.mape = Math.round(abs[Math.floor(abs.length / 2)] * 100);        // median abs % error
+    const q = cvErr.slice().sort((a, b) => a - b);
+    out.lo = Math.exp(q[Math.floor(q.length * 0.1)]);                    // 10th–90th pct band
+    out.hi = Math.exp(q[Math.floor(q.length * 0.9)]);
+  }
+
+  // Robust refit: a handful of listings aren't ordinary homes — houseboats
+  // (no plot, a fraction of the local kr/m²), andelslignende sales, encumbered
+  // plots. Left in, they drag the whole surface down. Fit once, then drop rows
+  // more than 3 robust SDs off and refit, so the model describes normal homes.
+  const b0 = fit(rows.map((_, i) => i));
+  const res0 = rows.map((_, i) => y[i] - dot(b0, X[i]));
+  const med = arr => { const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const m0 = med(res0), mad = med(res0.map(e => Math.abs(e - m0))) || 1e-6;
+  const cut = 3 * 1.4826 * mad;
+  const keep = [];
+  rows.forEach((r, i) => { if (Math.abs(res0[i] - m0) <= cut) keep.push(i); else out.odd.add(r.id); });
+  const beta = keep.length > p + 50 ? fit(keep) : b0;
+
   const ybar = y.reduce((a, b) => a + b, 0) / n; let ssr = 0, sst = 0;
   rows.forEach((r, i) => {
-    const xi = feat(r); let yh = 0; for (let k = 0; k < p; k++) yh += beta[k] * xi[k];
+    const yh = dot(beta, X[i]);
     out.pred.set(r.id, Math.round(Math.exp(yh)));
     out.resid.set(r.id, Math.round((r.m2p / Math.exp(yh) - 1) * 100));
     ssr += (y[i] - yh) ** 2; sst += (y[i] - ybar) ** 2;
@@ -1718,7 +1776,7 @@ function card(r) {
   const fav = el('button', { class: 'fav' + (isFav(r.id) ? ' on' : ''), type: 'button', title: isFav(r.id) ? 'Fjern fra gemte' : 'Gem bolig', 'aria-label': isFav(r.id) ? 'Fjern fra gemte' : 'Gem bolig', 'aria-pressed': isFav(r.id) ? 'true' : 'false' }, isFav(r.id) ? '♥' : '♡');
   fav.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleFav(r.id, r.p); renderCards(filtered()); });
   thumb.append(fav);
-  thumb.append(el('span', { class: 'badge ' + r.t }, r.t === 'villa' ? 'Villa' : 'Ejerlejl.'));
+  thumb.append(el('span', { class: 'badge ' + r.t }, homeTypeLabel(r)));
   if (r.d != null && r.d <= NEW_DAYS) thumb.append(el('span', { class: 'newbadge' }, 'Ny'));
   if (r.ssn) thumb.append(el('span', { class: 'stbadge' + (r.near ? ' near' : '') }, `${r.near ? '🚆 ' : ''}${r.ssn} · ${(r.sst / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 })} km`));
   a.append(thumb);
@@ -1755,13 +1813,22 @@ function card(r) {
     body.append(el('div', { class: 'hfbadge', title: 'Kommunen har hjemfaldspligt / tilbagekøbsret på grunden — kan sænke værdien markant. Læs annoncen.' }, '⚠ Hjemfald / tilbagekøb'));
   } else {
     // fair-value model: how the asking kr/m² compares to what the model predicts
-    const fvr = fairValue().resid.get(r.id), fvp = fairValue().pred.get(r.id);
-    if (fvr != null && Math.abs(fvr) >= 6) {
+    const FV = fairValue();
+    const fvr = FV.resid.get(r.id), fvp = FV.pred.get(r.id);
+    // only flag a deviation that clearly exceeds the model's own uncertainty —
+    // otherwise we'd label ordinary noise a bargain
+    const band = FV.mape != null ? Math.max(6, FV.mape) : 6;
+    // homes the model itself treats as atypical (houseboat, andelslignende,
+    // encumbered plot …) get no verdict — a bogus "under vurdering" on those
+    // would read as a bargain when it's really a different kind of property
+    if (fvr != null && !FV.odd.has(r.id) && Math.abs(fvr) >= band) {
       const under = fvr < 0, mag = Math.abs(fvr);
       // cap the shown magnitude so a genuine oddball (andel, encumbered plot…)
       // doesn't scream "50 %+" — the exact figure stays in the tooltip
       const shown = mag > 50 ? '50+' : mag;
-      body.append(el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)} · asking ${m2(r.m2p)} (${under ? '−' : '+'}${mag} %)` },
+      const range = (FV.lo && FV.hi) ? ` · forventet spænd ${m2(Math.round(fvp * FV.lo))}–${m2(Math.round(fvp * FV.hi))}` : '';
+      const acc = FV.mape != null ? ` · modellens typiske afvigelse ±${FV.mape} %` : '';
+      body.append(el('div', { class: 'valbadge ' + (under ? 'down' : 'up'), title: `Model-vurdering: ${m2(fvp)}${range} · udbudt ${m2(r.m2p)} (${under ? '−' : '+'}${mag} %)${acc}` },
         `${under ? '↓' : '↑'} ${shown} % ${under ? 'under' : 'over'} vurdering`));
     }
     // local realised benchmark — nearby tinglyste salg (same type, last 12 mo)
