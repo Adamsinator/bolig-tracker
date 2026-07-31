@@ -1851,7 +1851,10 @@ function card(r) {
     // local realised benchmark — nearby tinglyste salg (same type, last 12 mo)
     if (r.cmpM2 && r.m2p) {
       const diff = Math.round((r.m2p / r.cmpM2 - 1) * 100);
-      body.append(el('div', { class: 'compline', title: `${r.cmpN} tinglyste salg inden for ${r.cmpR} m` },
+      const cmpTitle = `${r.cmpN} tinglyste salg inden for ${r.cmpR} m, justeret til nutidsniveau`
+        + (r.cmpS != null ? ` · spredning ±${Math.round(r.cmpS / 2)} %` : '')
+        + (r.a ? ' · matchet på størrelse og byggeår' : '');
+      body.append(el('div', { class: 'compline', title: cmpTitle },
         `Realiseret i området: ${m2(r.cmpM2)} · udbudt ${Math.abs(diff)} % ${diff >= 0 ? 'over' : 'under'}`));
     }
   }
