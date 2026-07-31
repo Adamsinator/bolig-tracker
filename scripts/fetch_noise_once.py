@@ -148,51 +148,58 @@ zp = "/tmp/noise.zip"
 got = download(url, zp, referer=PAGE)
 print(f"   downloaded {got/1e6:.1f} MB", flush=True)
 
-print("3) unpacking…", flush=True)
-os.makedirs("/tmp/noise", exist_ok=True)
-try:
-    with zipfile.ZipFile(zp) as z:
-        z.extractall("/tmp/noise")
-        names = z.namelist()
-except Exception as ex:
-    sys.exit(f"not a zip we can read: {ex}")
-print("   entries:", names[:15], "…" if len(names) > 15 else "")
-
-found = []
-for root, _dirs, files in os.walk("/tmp/noise"):
-    for f in files:
-        if f.lower().endswith((".tab", ".shp", ".gpkg", ".mif")):
-            found.append(os.path.join(root, f))
-if not found:
-    sys.exit("no .tab/.shp/.gpkg found in the archive")
-print(f"   {len(found)} vector files:")
-for f in sorted(found):
-    print(f"     {os.path.getsize(f)/1e6:8.1f} MB  {os.path.relpath(f, '/tmp/noise')}")
+VEC_EXT = (".tab", ".shp", ".gpkg", ".mif")
 
 # The archive carries every theme for the whole country — road and rail, day and
 # night. Filename scoring picks the road Lden layer, but it is only a heuristic:
 # set NOISE_LAYER to a substring of the filename to pin it exactly.
-def pick(p):
-    b = os.path.basename(p).lower()
-    s = os.path.getsize(p) / 1e6
+def pick(name):
+    b = os.path.basename(name).lower()
     return (3 if re.search(r"vej|road", b) else 0) + (2 if "lden" in b else 0) \
-        - (3 if re.search(r"_nat|night|bane|rail|fly|air|industri", b) else 0) + min(s / 100, 1)
+        - (3 if re.search(r"_nat|night|bane|rail|fly|air|industri", b) else 0)
 
+
+print("3) reading the archive index…", flush=True)
+try:
+    z = zipfile.ZipFile(zp)
+except Exception as ex:
+    sys.exit(f"not a zip we can read: {ex}")
+infos = [i for i in z.infolist() if not i.is_dir()]
+vecs = [i for i in infos if i.filename.lower().endswith(VEC_EXT)]
+if not vecs:
+    sys.exit(f"no {'/'.join(VEC_EXT)} in the archive ({len(infos)} entries)")
+print(f"   {len(infos)} entries, {len(vecs)} vector layers:")
+for i in sorted(vecs, key=lambda i: i.filename):
+    print(f"     {i.file_size/1e6:8.1f} MB  {i.filename}")
 
 if LAYER:
-    match = [f for f in found if LAYER.lower() in os.path.basename(f).lower()]
+    match = [i for i in vecs if LAYER.lower() in i.filename.lower()]
     if not match:
-        sys.exit(f"NOISE_LAYER={LAYER!r} matched none of the {len(found)} vector files")
-    src = sorted(match, key=os.path.getsize, reverse=True)[0]
+        sys.exit(f"NOISE_LAYER={LAYER!r} matched none of the {len(vecs)} layers")
+    chosen = sorted(match, key=lambda i: i.file_size, reverse=True)[0]
     print(f"   NOISE_LAYER={LAYER!r} → {len(match)} match(es)")
 else:
-    src = sorted(found, key=pick, reverse=True)[0]
-print("   using:", os.path.relpath(src, "/tmp/noise"), flush=True)
+    chosen = sorted(vecs, key=lambda i: (pick(i.filename), i.file_size), reverse=True)[0]
+print("   chosen:", chosen.filename, flush=True)
 
-print("4) inspecting layer…", flush=True)
+# Extract only the chosen layer and its sidecars. MapInfo TAB and Shapefile both
+# split one layer across several files sharing a stem, and the full archive
+# unpacked is many GB — far more than the runner's free disk.
+stem = os.path.splitext(chosen.filename)[0]
+members = [i for i in infos if os.path.splitext(i.filename)[0] == stem]
+mb = sum(i.file_size for i in members) / 1e6
+print(f"4) extracting {len(members)} files for that layer ({mb:.1f} MB)…", flush=True)
+os.makedirs("/tmp/noise", exist_ok=True)
+for i in members:
+    z.extract(i, "/tmp/noise")
+    print(f"     {i.file_size/1e6:8.1f} MB  {i.filename}", flush=True)
+src = os.path.join("/tmp/noise", chosen.filename)
+os.remove(zp)                      # 1.1 GB back before GDAL needs the space
+
+print("5) inspecting layer…", flush=True)
 print(subprocess.run(["ogrinfo", "-so", "-al", src], capture_output=True, text=True).stdout[:1800])
 
-print("5) clipping to the corridor + reprojecting to WGS84…", flush=True)
+print("6) clipping to the corridor + reprojecting to WGS84…", flush=True)
 tmp = "/tmp/noise_clip.json"
 if os.path.exists(tmp):
     os.remove(tmp)
@@ -229,6 +236,6 @@ os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, "w", encoding="utf-8") as fh:
     json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
 mb = os.path.getsize(OUT) / 1e6
-print(f"6) wrote data/noise.json — {len(out['features'])} features, {mb:.1f} MB")
+print(f"7) wrote data/noise.json — {len(out['features'])} features, {mb:.1f} MB")
 if mb > 45:
     print("   WARNING: large for a git repo; consider a coarser -simplify")
