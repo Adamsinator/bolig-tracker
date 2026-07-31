@@ -54,7 +54,13 @@ KNOWN_URL = "https://files-miljoegis.mim.dk/noise2022/2022_noise_tab.zip"
 
 # corridor: Koebenhavn -> Hilleroed / Frederikssund / the coast (Region Hovedstaden)
 W, S, E, N = 12.05, 55.58, 12.70, 55.96
-RES_M = 20.0                       # grid resolution in metres
+# 10 m matches the resolution Miljoestyrelsen models agglomeration noise at, so
+# going finer would invent detail the source does not have. It matters most in
+# dense blocks, where the drop from a 75 dB facade to a shielded courtyard
+# happens over ~20 m — at 20 m cells that gradient landed in a single cell and
+# addresses fell through to "quiet". The file is read by the daily build, never
+# by the browser, so the extra size costs a user nothing.
+RES_M = 10.0                       # grid resolution in metres
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "noise.json")
 
 # Danish road layers at 1.5 m facade height, daytime Lden. The archive also holds
