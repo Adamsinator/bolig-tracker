@@ -7,6 +7,10 @@ on:
         description: "Direct archive URL (skips scraping the download page)"
         required: false
         default: ""
+      probe:
+        description: "Only report the chosen URL and its size, then stop"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -24,6 +28,7 @@ jobs:
       - name: Fetch + clip
         env:
           NOISE_URL: ${{ inputs.url }}
+          NOISE_PROBE: ${{ inputs.probe }}
         run: python3 scripts/fetch_noise_once.py
       - name: Commit the clipped layer
         run: |

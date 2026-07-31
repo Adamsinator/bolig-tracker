@@ -33,6 +33,9 @@ PAGE = os.environ.get("NOISE_PAGE") or (
     "miljoegis-data-om-natur-og-miljoe-paa-webkort/hent-data-udstillet-paa-miljoegis")
 # set NOISE_URL to skip the page scrape and go straight at a known archive
 DIRECT = os.environ.get("NOISE_URL", "").strip()
+# NOISE_PROBE=1 stops after reporting the chosen URL and its size — seconds, not
+# an hour, when all you need to know is what the job is about to pull
+PROBE = os.environ.get("NOISE_PROBE", "").strip() not in ("", "0", "false")
 # corridor: Koebenhavn -> Hilleroed / Frederikssund / the coast (Region Hovedstaden)
 W, S, E, N = 12.05, 55.58, 12.70, 55.96
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "noise.json")
@@ -48,6 +51,48 @@ def fetch(url, referer=None):
         if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
             raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
         return raw
+
+
+def head(url, referer=None):
+    """Size + type without pulling the body, so a huge archive is a known cost
+    rather than a job that silently sits there for an hour."""
+    h = dict(HDRS)
+    if referer:
+        h["Referer"] = referer
+    req = urllib.request.Request(url, headers=h, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, r.headers.get("Content-Length"), r.headers.get("Content-Type")
+    except Exception as ex:
+        return None, None, f"HEAD failed: {ex}"
+
+
+def download(url, dest, referer=None):
+    """Streamed, with progress — a 35-minute silent read tells you nothing about
+    whether it is slow or wedged."""
+    h = dict(HDRS)
+    if referer:
+        h["Referer"] = referer
+    req = urllib.request.Request(url, headers=h)
+    got = 0
+    step = 25 * 1024 * 1024
+    nxt = step
+    with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as fh:
+        total = r.headers.get("Content-Length")
+        total = int(total) if total and total.isdigit() else None
+        print(f"   content-length: {(total/1e6):.1f} MB" if total else "   content-length: unknown",
+              flush=True)
+        while True:
+            chunk = r.read(1024 * 1024)
+            if not chunk:
+                break
+            fh.write(chunk)
+            got += len(chunk)
+            if got >= nxt:
+                pct = f" ({got*100//total}%)" if total else ""
+                print(f"   … {got/1e6:.0f} MB{pct}", flush=True)
+                nxt += step
+    return got
 
 
 if DIRECT:
@@ -85,13 +130,21 @@ else:
         for l in sorted({l for l in links if re.search(r"download|\.zip", l, re.I)})[:80]:
             print("     ", l)
         sys.exit("stopping: need the exact download URL")
+    print("\n   ranked candidates:")
+    for l in best[:8]:
+        print(f"     {score(l):>3}  {l}")
     url = best[0]
 
-print(f"\n2) downloading {url}", flush=True)
-data = fetch(url, referer=PAGE)
-print(f"   {len(data)/1e6:.1f} MB", flush=True)
+print(f"\n2) target: {url}", flush=True)
+st, clen, ctype = head(url, referer=PAGE)
+size = f"{int(clen)/1e6:.1f} MB" if clen and clen.isdigit() else "unknown"
+print(f"   HEAD {st} · {size} · {ctype}", flush=True)
+if PROBE:
+    sys.exit(0)
+
 zp = "/tmp/noise.zip"
-open(zp, "wb").write(data)
+got = download(url, zp, referer=PAGE)
+print(f"   downloaded {got/1e6:.1f} MB", flush=True)
 
 print("3) unpacking…", flush=True)
 os.makedirs("/tmp/noise", exist_ok=True)
