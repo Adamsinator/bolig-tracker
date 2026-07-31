@@ -1320,6 +1320,91 @@ def annotate_comps(listings, points):
     return done
 
 
+def fetch_geo_features():
+    """Location quality for the fair-value model: how close a home is to a
+    motorway (noise — a negative), to open water, and to forest/park. Each layer
+    is reduced to sample points along its geometry; only the per-listing
+    distances are kept, so nothing heavy ships to the client. Fail-soft: a layer
+    that fails to fetch is simply left out."""
+    s, w, n, e = CORRIDOR_BBOX
+    layers = {
+        # motorways and trunk roads — the noisy ones you don't want to back onto
+        "mot": f'way["highway"~"^(motorway|trunk)$"]({s},{w},{n},{e});',
+        # Øresund coastline plus named lakes (Furesø, Bagsværd Sø, …)
+        "wat": (f'way["natural"="coastline"]({s},{w},{n},{e});'
+                f'way["natural"="water"]["name"]({s},{w},{n},{e});'),
+        # forest, woodland and parks
+        "grn": (f'way["landuse"="forest"]({s},{w},{n},{e});'
+                f'way["natural"="wood"]({s},{w},{n},{e});'
+                f'way["leisure"="park"]({s},{w},{n},{e});'),
+    }
+    geo = {}
+    for key, body in layers.items():
+        try:
+            data = _overpass(f'[out:json][timeout:120];({body});out geom;')
+            pts = []
+            for el in (data or {}).get("elements", []):
+                g = el.get("geometry") or []
+                # every 3rd node is ~100 m resolution — plenty for a distance feature
+                for p in g[::3]:
+                    pts.append((p["lat"], p["lon"]))
+            if pts:
+                geo[key] = pts
+            print(f"  geo {key}: {len(pts)} sample points")
+        except Exception as ex:
+            print(f"  geo {key} fetch failed ({ex})", file=sys.stderr)
+    return geo or None
+
+
+def annotate_geo_distance(listings, geo):
+    """Add r['geo'] = {'mot','wat','grn'} — metres to the nearest motorway, open
+    water and green area. Same coarse-grid prefilter as the amenity distances."""
+    if not geo:
+        return
+    CELL = 0.02
+    grids, allpts = {}, {}
+    for k, pts in geo.items():
+        g = {}
+        for la, lo in pts:
+            g.setdefault((int(la / CELL), int(lo / CELL)), []).append((la, lo))
+        grids[k], allpts[k] = g, pts
+
+    def nearest(lat, lon, k):
+        clat = math.cos(math.radians(lat))
+        ci, cj = int(lat / CELL), int(lon / CELL)
+        cand = []
+        rng = 2
+        while not cand and rng <= 6:      # widen the search for sparse layers
+            cand = [p for di in range(-rng, rng + 1) for dj in range(-rng, rng + 1)
+                    for p in grids[k].get((ci + di, cj + dj), [])]
+            rng += 2
+        if not cand:
+            cand = allpts[k]
+        best = None
+        for a, b in cand:
+            dy = (a - lat) * 110540.0
+            dx = (b - lon) * 111320.0 * clat
+            d = dx * dx + dy * dy
+            if best is None or d < best:
+                best = d
+        return int(best ** 0.5) if best is not None else None
+
+    n = 0
+    for r in listings:
+        lat, lon = r.get("lat"), r.get("lon")
+        if lat is None or lon is None:
+            continue
+        gd = {}
+        for k in geo:
+            d = nearest(lat, lon, k)
+            if d is not None:
+                gd[k] = d
+        if gd:
+            r["geo"] = gd
+            n += 1
+    print(f"  geo distances: annotated {n}/{len(listings)} listings")
+
+
 def annotate_poi_distance(listings, pois):
     """Issue #7: add each listing's straight-line distance (metres) to the nearest
     supermarket / school / daycare, from data/poi.json, as r['poi']={'sup','sch',
@@ -1445,6 +1530,9 @@ def main():
             json.dump({"generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                        "count": len(pois), "items": pois}, f, ensure_ascii=False, separators=(",", ":"))
     annotate_poi_distance(listings, pois)
+
+    print("Fetching location features — motorway / water / nature (issue #8)…")
+    annotate_geo_distance(listings, fetch_geo_features())
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)

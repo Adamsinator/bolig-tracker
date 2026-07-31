@@ -1646,6 +1646,13 @@ function fairValue() {
   const medPoi = {};
   if (hasPoi) ['sup', 'sch', 'day'].forEach(k => { medPoi[k] = median(rows.map(r => r.poi && r.poi[k]).filter(v => v != null)) || 800; });
   const poiOf = (r, k) => (r.poi && r.poi[k] != null) ? r.poi[k] : medPoi[k];
+  // location quality (issue #8): motorway noise vs. water and nature nearby.
+  // Same median imputation so a gap never reads as "right next to it".
+  const GEO_KEYS = ['mot', 'wat', 'grn'];
+  const hasGeo = rows.some(r => r.geo && r.geo.mot != null);
+  const medGeo = {};
+  if (hasGeo) GEO_KEYS.forEach(k => { medGeo[k] = median(rows.map(r => r.geo && r.geo[k]).filter(v => v != null)) || 1000; });
+  const geoOf = (r, k) => (r.geo && r.geo[k] != null) ? r.geo[k] : medGeo[k];
   const feat = r => {
     const la = Math.log(r.a);
     const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
@@ -1655,6 +1662,7 @@ function fairValue() {
     if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
     if (hasComp) f.push(Math.log(compOf(r)) / 12);
     if (hasPoi) f.push(Math.log(poiOf(r, 'sup') + 1) / 10, Math.log(poiOf(r, 'sch') + 1) / 10, Math.log(poiOf(r, 'day') + 1) / 10);
+    if (hasGeo) GEO_KEYS.forEach(k => f.push(Math.log(geoOf(r, k) + 1) / 10));
     for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
     return f;
   };
