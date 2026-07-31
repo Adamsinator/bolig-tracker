@@ -1705,6 +1705,12 @@ function card(r) {
     if (r.poi.day != null) pp.push('🧸 ' + fmtM(r.poi.day));
     if (pp.length) meta.append(el('span', { class: 'poi-dist', title: 'Afstand til nærmeste indkøb · skole · daginstitution' }, pp.join(' · ')));
   }
+  // only worth calling out when it's actually noisy — 55 dB Lden is where
+  // Miljøstyrelsen's map begins and 58 dB is the vejledende grænseværdi
+  if (r.db >= 58) meta.append(el('span', {
+    class: 'noise-db',
+    title: 'Beregnet vejstøj på facaden (Lden). Miljøstyrelsens vejledende grænse for boliger er 58 dB.',
+  }, `🔊 ${r.db} dB`));
   if (S.A || S.B) {
     const parts = [];
     if (S.A) parts.push('🏠 ' + haversine(r.lat, r.lon, S.A.lat, S.A.lon).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km');

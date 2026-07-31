@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=14">
 <link rel="manifest" href="manifest.webmanifest?v=14">
 <meta name="theme-color" content="#1c5cb0">
-<link rel="stylesheet" href="styles.css?v=46">
+<link rel="stylesheet" href="styles.css?v=47">
 <style>
   .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
   .mdl-note strong { color:var(--ink); }
@@ -87,7 +87,8 @@
       <p class="mdl-note">
         Modellen er en <strong>hedonisk regression</strong>: den forklarer kvadratmeterprisen (log) ud fra boligens egenskaber —
         størrelse, antal værelser, byggeår, etage, kælder, grund, <strong>energimærke</strong>, afstand til S-tog og metro,
-        afstand til indkøb, skole og daginstitution, afstand til motorvej, vand og natur, boligtype, kommune samt
+        afstand til indkøb, skole og daginstitution, afstand til motorvej, vand og natur,
+        <strong>trafikstøj på facaden</strong> (Lden i dB fra Miljøstyrelsens støjkortlægning), boligtype, kommune samt
         <strong>realiserede handler i nabolaget</strong> (tinglyste salg, justeret til nutidsniveau og matchet på størrelse og byggeår).
         Den er ridge-regulariseret, så enkeltfaktorer ikke kan løbe løbsk.
       </p>
@@ -114,7 +115,7 @@
 </div>
 
 <div id="tooltip" class="tooltip" hidden></div>
-<script src="model.js?v=1"></script>
+<script src="model.js?v=2"></script>
 <script src="modelpage.js?v=1"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>

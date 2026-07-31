@@ -46,6 +46,13 @@
     const medGeo = {};
     if (hasGeo) GEO_KEYS.forEach(k => { medGeo[k] = median(rows.map(r => r.geo && r.geo[k]).filter(v => v != null)) || 1000; });
     const geoOf = (r, k) => (r.geo && r.geo[k] != null) ? r.geo[k] : medGeo[k];
+    // road-traffic noise at the façade (Lden, dB) from Miljøstyrelsen's 2022 EU
+    // noise mapping. Centred on 55 dB — the level at which the map starts — and
+    // scaled by 10 so a whole band moves the feature by half a unit. A home with
+    // no reading gets the median rather than "silent".
+    const hasNoise = rows.some(r => r.db != null);
+    const medDb = hasNoise ? (median(rows.map(r => r.db).filter(v => v != null)) || 55) : 55;
+    const dbOf = r => (r.db != null ? r.db : medDb);
     const feat = r => {
       const la = Math.log(r.a);
       const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
@@ -56,6 +63,7 @@
       if (hasComp) f.push(Math.log(compOf(r)) / 12);
       if (hasPoi) f.push(Math.log(poiOf(r, 'sup') + 1) / 10, Math.log(poiOf(r, 'sch') + 1) / 10, Math.log(poiOf(r, 'day') + 1) / 10);
       if (hasGeo) GEO_KEYS.forEach(k => f.push(Math.log(geoOf(r, k) + 1) / 10));
+      if (hasNoise) f.push((dbOf(r) - 55) / 10);
       for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
       return f;
     };

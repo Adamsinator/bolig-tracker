@@ -1535,6 +1535,71 @@ def annotate_poi_distance(listings, pois):
     print(f"  poi distances: annotated {n}/{len(listings)} listings")
 
 
+# Miljøstyrelsen maps road noise in 5 dB bands from 55 dB Lden upward. Anything
+# outside every band is quieter than the lowest mapped one; 50 is a reasonable
+# stand-in so "not in a band" doesn't read as "no data".
+NOISE_FLOOR_DB = 50
+
+
+def annotate_noise(listings, noise):
+    """Add r['db'] — road-traffic noise (Lden, façade level) from Miljøstyrelsen's
+    2022 EU noise mapping, in dB. The layer is a set of 5 dB band polygons; a home
+    gets the loudest band its coordinate falls inside, and NOISE_FLOOR_DB if it
+    falls outside all of them. Fail-soft: no layer → no-op, and the model treats a
+    missing r['db'] as "unknown" rather than "quiet"."""
+    if not noise:
+        return
+    CELL = 0.01                          # ~1.1 km cells
+    grid = {}
+    kept = 0
+    for f in noise.get("features", []):
+        db = f.get("properties", {}).get("db")
+        g = f.get("geometry") or {}
+        if db is None or not g.get("coordinates"):
+            continue
+        polys = g["coordinates"] if g.get("type") == "MultiPolygon" else [g["coordinates"]]
+        for poly in polys:
+            if not poly or not poly[0]:
+                continue
+            xs = [p[0] for p in poly[0]]
+            ys = [p[1] for p in poly[0]]
+            item = (float(db), poly, min(xs), min(ys), max(xs), max(ys))
+            for i in range(int(min(ys) / CELL), int(max(ys) / CELL) + 1):
+                for j in range(int(min(xs) / CELL), int(max(xs) / CELL) + 1):
+                    grid.setdefault((i, j), []).append(item)
+            kept += 1
+
+    def inside(ring, lon, lat):
+        # ray casting; ring is [[lon,lat], …]
+        hit = False
+        n_ = len(ring)
+        for a in range(n_):
+            x1, y1 = ring[a][0], ring[a][1]
+            x2, y2 = ring[(a + 1) % n_][0], ring[(a + 1) % n_][1]
+            if (y1 > lat) != (y2 > lat) and lon < (x2 - x1) * (lat - y1) / (y2 - y1 + 1e-15) + x1:
+                hit = not hit
+        return hit
+
+    n = 0
+    for r in listings:
+        lat, lon = r.get("lat"), r.get("lon")
+        if lat is None or lon is None:
+            continue
+        best = None
+        for db, poly, x0, y0, x1, y1 in grid.get((int(lat / CELL), int(lon / CELL)), []):
+            if not (x0 <= lon <= x1 and y0 <= lat <= y1):
+                continue
+            if best is not None and db <= best:
+                continue                 # already have a louder band here
+            if inside(poly[0], lon, lat) and not any(inside(h, lon, lat) for h in poly[1:]):
+                best = db
+        r["db"] = int(best) if best is not None else NOISE_FLOOR_DB
+        n += 1
+    loud = sum(1 for r in listings if (r.get("db") or 0) >= 60)
+    print(f"  noise: {kept} band polygons, annotated {n}/{len(listings)} listings "
+          f"({loud} at 60 dB or above)")
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(here, "..", "data")
@@ -1608,6 +1673,17 @@ def main():
 
     print("Fetching location features — motorway / water / nature (issue #8)…")
     annotate_geo_distance(listings, fetch_geo_features())
+
+    # Road-traffic noise: a static layer fetched once by scripts/fetch_noise_once.py
+    # (EU noise mapping is redone every ~5 years), so just read it off disk.
+    noise_path = os.path.join(data_dir, "noise.json")
+    if os.path.exists(noise_path):
+        print("Matching addresses against the 2022 road-noise map…")
+        try:
+            with open(noise_path, encoding="utf-8") as f:
+                annotate_noise(listings, json.load(f))
+        except Exception as ex:
+            print(f"  noise annotation failed ({ex})", file=sys.stderr)
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
