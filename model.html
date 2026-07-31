@@ -93,6 +93,13 @@
         Den er ridge-regulariseret, så enkeltfaktorer ikke kan løbe løbsk.
       </p>
       <p class="mdl-note">
+        <strong>Faktorerne overlapper.</strong> Trafikstøj er målt for hver adresse, men gør målt på hele materialet
+        ingen forskel på træfsikkerheden — en støjplaget vej er nemlig <em>allerede</em> billigere i de realiserede
+        nabolagshandler, modellen sammenligner med. Først når de handler tages væk, kan man se støjen bære sin egen
+        vægt. Den står derfor stærkest i områder med få sammenlignelige salg — og dB-tallet på den enkelte bolig er
+        under alle omstændigheder en oplysning, der er værd at kende, uanset hvad den gør ved modellen.
+      </p>
+      <p class="mdl-note">
         Træfsikkerheden er målt med <strong>5-fold krydsvalidering</strong>: modellen trænes på 4/5 af boligerne og vurderer den sidste
         femtedel, så en bolig aldrig hjælper med at forudsige sig selv. Tallet du ser er derfor et ærligt bud på, hvor galt den typisk
         rammer på en <em>ny</em> bolig — ikke hvor godt den passer til dem, den allerede har set. Efter første kørsel gentages den uden
