@@ -1609,9 +1609,18 @@ function zMap() {
 }
 // "possible bargain" score: cheap per m² for its area, bonus for a recent price
 // cut and for being near an S-train.
+// Rank for the "under vurdering" sort. Homes the model itself treated as
+// atypical (excluded from the fit) are pushed to the bottom — a houseboat at a
+// fraction of the local kr/m² is not a bargain, it's a different product.
+function valueRank(r) {
+  const FV = fairValue();
+  if (FV.odd.has(r.id)) return 1e9;
+  return FV.resid.get(r.id) ?? 1e9;
+}
 function fundScore(r) {
   const z = zMap().get(r.id);
   if (z == null) return -Infinity;
+  if (fairValue().odd.has(r.id)) return -Infinity;   // atypical — not a "find"
   return -z + (r.chg < 0 ? 0.6 : 0) + (r.near ? 0.3 : 0);
 }
 
@@ -1732,7 +1741,7 @@ function fairValue() {
   _fv = out; return out;
 }
 function sortRows(f) {
-  const cmp = { d: (a, b) => a.d - b.d, m2p: (a, b) => a.m2p - b.m2p, m2p_desc: (a, b) => b.m2p - a.m2p, p: (a, b) => a.p - b.p, p_desc: (a, b) => b.p - a.p, sst: (a, b) => a.sst - b.sst, chg: (a, b) => (a.chg || 0) - (b.chg || 0), fund: (a, b) => fundScore(b) - fundScore(a), value: (a, b) => (fairValue().resid.get(a.id) ?? 1e9) - (fairValue().resid.get(b.id) ?? 1e9) }[S.sort];
+  const cmp = { d: (a, b) => a.d - b.d, m2p: (a, b) => a.m2p - b.m2p, m2p_desc: (a, b) => b.m2p - a.m2p, p: (a, b) => a.p - b.p, p_desc: (a, b) => b.p - a.p, sst: (a, b) => a.sst - b.sst, chg: (a, b) => (a.chg || 0) - (b.chg || 0), fund: (a, b) => fundScore(b) - fundScore(a), value: (a, b) => (valueRank(a)) - (valueRank(b)) }[S.sort];
   return [...f].sort(cmp);
 }
 // Per-listing change log (data/tracker.json) — loaded lazily after first paint
