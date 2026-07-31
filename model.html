@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model &amp; træfsikkerhed — Bolig Tracker</title>
+<meta name="description" content="Hvor præcis er Bolig Trackers model-vurdering? Træfsikkerhed målt uden for stikprøven, usikkerhedsspænd, hvor modellen rammer godt og hvor den ikke gør — og hvad den ikke kan se.">
+<link rel="canonical" href="https://boligtracker.dk/model.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bolig Tracker">
+<meta property="og:title" content="Model &amp; træfsikkerhed — Bolig Tracker">
+<meta property="og:description" content="Hvor præcis er model-vurderingen? Træfsikkerhed, usikkerhedsspænd og modellens begrænsninger.">
+<meta property="og:url" content="https://boligtracker.dk/model.html">
+<meta property="og:image" content="https://boligtracker.dk/icon-512.png">
+<meta name="twitter:card" content="summary">
+<link rel="icon" type="image/svg+xml" href="logo.svg?v=14">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=14">
+<link rel="manifest" href="manifest.webmanifest?v=14">
+<meta name="theme-color" content="#1c5cb0">
+<link rel="stylesheet" href="styles.css?v=46">
+<style>
+  .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
+  .mdl-note strong { color:var(--ink); }
+  .mdl-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .mdl-table th, .mdl-table td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border-2); }
+  .mdl-table th { color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  .mdl-table td.num, .mdl-table th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .mdl-wrap { max-height:420px; overflow:auto; }
+  .bar-cell { display:flex; align-items:center; gap:8px; }
+  .bar-cell i { display:block; height:9px; border-radius:3px; background:var(--condo); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="logo.svg?v=14" alt="Bolig Tracker" width="34" height="34">
+      <div>
+        <h1>Model &amp; træfsikkerhed</h1>
+        <p class="tagline">Hvor godt rammer model-vurderingen — og hvor gør den ikke?</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <a class="nav-link" href="index.html">← Bolig Tracker</a>
+      <div class="updated" id="asof"></div>
+      <button class="theme-toggle" id="themeToggle" title="Skift lyst/mørkt tema" aria-label="Skift tema"></button>
+    </div>
+  </header>
+
+  <section class="kpis" id="mdlTiles" aria-label="Modellens nøgletal" aria-busy="true">
+    <div class="skeleton-tile"></div><div class="skeleton-tile"></div><div class="skeleton-tile"></div>
+    <div class="skeleton-tile"></div><div class="skeleton-tile"></div>
+  </section>
+
+  <section class="grid">
+    <div class="card wide">
+      <div class="card-head"><h2>Sådan skal tallene læses</h2></div>
+      <p class="mdl-note" id="readMe"></p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Model vs. udbudspris <span class="src">· hver prik er en bolig</span></h2></div>
+      <div id="scatter" class="chart"></div>
+      <p class="chart-note">Den stiplede linje er “model = udbudspris”. Prikker over linjen er udbudt højere end modellen vurderer, prikker under er udbudt lavere. Spredningen omkring linjen <em>er</em> modellens usikkerhed.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Fordeling af afvigelser <span class="src">· udbudt vs. model</span></h2></div>
+      <div id="hist" class="chart"></div>
+      <p class="chart-note" id="histNote"></p>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Hvor rammer modellen godt? <span class="src">· typisk afvigelse pr. kommune og boligtype</span></h2></div>
+      <div class="mdl-wrap"><table class="mdl-table" id="segTable"></table></div>
+      <p class="chart-note">Beregnet på boliger modellen faktisk bruger. Få handler i et område giver et mindre pålideligt tal — se antallet.</p>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Boliger modellen holder udenfor <span class="src" id="oddCount"></span></h2></div>
+      <p class="mdl-note">Nogle boliger er ikke almindelige familieboliger — husbåde uden grund, boliger med hjemfaldspligt, andelslignende handler. De trækker modellen skæv, så de udelades af beregningen, og de får <strong>ingen vurdering</strong> på forsiden: en “under vurdering”-mærkat ville her ligne et røverkøb frem for en anden slags bolig.</p>
+      <div class="mdl-wrap"><table class="mdl-table" id="oddTable"></table></div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Metode &amp; forbehold</h2></div>
+      <p class="mdl-note">
+        Modellen er en <strong>hedonisk regression</strong>: den forklarer kvadratmeterprisen (log) ud fra boligens egenskaber —
+        størrelse, antal værelser, byggeår, etage, kælder, grund, <strong>energimærke</strong>, afstand til S-tog og metro,
+        afstand til indkøb, skole og daginstitution, afstand til motorvej, vand og natur, boligtype, kommune samt
+        <strong>realiserede handler i nabolaget</strong> (tinglyste salg, justeret til nutidsniveau og matchet på størrelse og byggeår).
+        Den er ridge-regulariseret, så enkeltfaktorer ikke kan løbe løbsk.
+      </p>
+      <p class="mdl-note">
+        Træfsikkerheden er målt med <strong>5-fold krydsvalidering</strong>: modellen trænes på 4/5 af boligerne og vurderer den sidste
+        femtedel, så en bolig aldrig hjælper med at forudsige sig selv. Tallet du ser er derfor et ærligt bud på, hvor galt den typisk
+        rammer på en <em>ny</em> bolig — ikke hvor godt den passer til dem, den allerede har set. Efter første kørsel gentages den uden
+        de mest atypiske boliger (robust genberegning), så enkelte særtilfælde ikke trækker hele niveauet.
+      </p>
+      <p class="mdl-note">
+        <strong>Hvad modellen ikke kan se:</strong> stand og vedligehold, renoveringer, udsigt, planløsning, støj fra naboer, lys og
+        orientering, haven, eller hvor godt boligen er præsenteret. Det er præcis den slags, der afgør de sidste ti-tyve procent —
+        og forklarer hvorfor afvigelsen aldrig kommer ned i nul. Brug tallet som en <em>indikation</em>, ikke som en vurdering:
+        det er ikke en ejendomsmæglervurdering, og det er ikke rådgivning.
+      </p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>Model beregnet i browseren på udbudsdata fra <a href="https://www.boligsiden.dk" target="_blank" rel="noopener">boligsiden.dk</a>
+    og tinglyste salg via <a href="https://www.boliga.dk" target="_blank" rel="noopener">Boliga</a>.</p>
+    <p><a href="index.html">Bolig Tracker</a> · <a href="renter.html">Realkreditrenter</a> · <a href="om.html">Om &amp; forbehold</a> · uofficielt hobbyprojekt uden garanti.</p>
+  </footer>
+</div>
+
+<div id="tooltip" class="tooltip" hidden></div>
+<script src="model.js?v=1"></script>
+<script src="modelpage.js?v=1"></script>
+<script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+</body>
+</html>
