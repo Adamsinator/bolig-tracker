@@ -36,6 +36,8 @@ DIRECT = os.environ.get("NOISE_URL", "").strip()
 # NOISE_PROBE=1 stops after reporting the chosen URL and its size — seconds, not
 # an hour, when all you need to know is what the job is about to pull
 PROBE = os.environ.get("NOISE_PROBE", "").strip() not in ("", "0", "false")
+# NOISE_LAYER pins which file inside the archive to use, by filename substring
+LAYER = os.environ.get("NOISE_LAYER", "").strip()
 # corridor: Koebenhavn -> Hilleroed / Frederikssund / the coast (Region Hovedstaden)
 W, S, E, N = 12.05, 55.58, 12.70, 55.96
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "noise.json")
@@ -163,15 +165,29 @@ for root, _dirs, files in os.walk("/tmp/noise"):
             found.append(os.path.join(root, f))
 if not found:
     sys.exit("no .tab/.shp/.gpkg found in the archive")
-print("   vector files:", [os.path.basename(f) for f in found][:20])
-# several layers may ship together (day / night / rail) — take the road Lden one
+print(f"   {len(found)} vector files:")
+for f in sorted(found):
+    print(f"     {os.path.getsize(f)/1e6:8.1f} MB  {os.path.relpath(f, '/tmp/noise')}")
+
+# The archive carries every theme for the whole country — road and rail, day and
+# night. Filename scoring picks the road Lden layer, but it is only a heuristic:
+# set NOISE_LAYER to a substring of the filename to pin it exactly.
 def pick(p):
     b = os.path.basename(p).lower()
     s = os.path.getsize(p) / 1e6
     return (3 if re.search(r"vej|road", b) else 0) + (2 if "lden" in b else 0) \
-        - (3 if re.search(r"nat|night|bane|rail|fly|air", b) else 0) + min(s / 100, 1)
-src = sorted(found, key=pick, reverse=True)[0]
-print("   using:", src, flush=True)
+        - (3 if re.search(r"_nat|night|bane|rail|fly|air|industri", b) else 0) + min(s / 100, 1)
+
+
+if LAYER:
+    match = [f for f in found if LAYER.lower() in os.path.basename(f).lower()]
+    if not match:
+        sys.exit(f"NOISE_LAYER={LAYER!r} matched none of the {len(found)} vector files")
+    src = sorted(match, key=os.path.getsize, reverse=True)[0]
+    print(f"   NOISE_LAYER={LAYER!r} → {len(match)} match(es)")
+else:
+    src = sorted(found, key=pick, reverse=True)[0]
+print("   using:", os.path.relpath(src, "/tmp/noise"), flush=True)
 
 print("4) inspecting layer…", flush=True)
 print(subprocess.run(["ogrinfo", "-so", "-al", src], capture_output=True, text=True).stdout[:1800])
@@ -186,7 +202,9 @@ r = subprocess.run([
     "-clipdst", str(W), str(S), str(E), str(N),
     "-simplify", "0.00005",
     "-nlt", "PROMOTE_TO_MULTI",
+    "-progress",
 ], capture_output=True, text=True)
+print(r.stdout[-400:], flush=True)
 if r.returncode != 0:
     print(r.stdout[-1500:]); sys.exit("ogr2ogr failed: " + r.stderr[-1500:])
 
