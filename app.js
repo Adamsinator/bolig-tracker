@@ -1707,14 +1707,22 @@ function card(r) {
     if (r.poi.day != null) pp.push('🧸 ' + fmtM(r.poi.day));
     if (pp.length) meta.append(el('span', { class: 'poi-dist', title: 'Afstand til nærmeste indkøb · skole · daginstitution' }, pp.join(' · ')));
   }
-  // The mapping is in 5 dB bands and r.db is the band midpoint, so the lowest
-  // band (55–59) straddles the 58 dB vejledende grænseværdi. Flag from 60 up,
-  // where the band as a whole is above the limit — no false alarms.
-  if (r.db >= 60) meta.append(el('span', {
-    class: 'noise-db',
-    title: 'Beregnet vejstøj på facaden (Lden), midt i et 5 dB-interval fra Miljøstyrelsens '
-         + 'støjkortlægning. Vejledende grænseværdi for boliger er 58 dB.',
-  }, `🔊 ~${r.db} dB`));
+  // Shown from 55 dB up. r.db is the midpoint of a 5 dB band, so the lowest one
+  // shown (53–58) sits *around* the 58 dB vejledende grænseværdi rather than
+  // above it — that gets a muted style and its own wording, while 60 and up,
+  // which clears the limit outright, keeps the warning colour. Same number,
+  // honestly qualified, instead of one badge implying two different things.
+  if (r.db >= 55) {
+    const over = r.db >= 60;
+    meta.append(el('span', {
+      class: over ? 'noise-db' : 'noise-db near',
+      title: over
+        ? 'Beregnet vejstøj på facaden (Lden), midt i et 5 dB-interval fra Miljøstyrelsens '
+          + 'støjkortlægning. Over den vejledende grænseværdi for boliger på 58 dB.'
+        : 'Beregnet vejstøj på facaden (Lden) fra Miljøstyrelsens støjkortlægning. Ligger i '
+          + 'intervallet 53–58 dB, altså omkring den vejledende grænseværdi for boliger på 58 dB.',
+    }, `🔊 ~${r.db} dB`));
+  }
   if (S.A || S.B) {
     const parts = [];
     if (S.A) parts.push('🏠 ' + haversine(r.lat, r.lon, S.A.lat, S.A.lon).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km');
