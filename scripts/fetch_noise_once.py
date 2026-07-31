@@ -48,6 +48,9 @@ PROBE = os.environ.get("NOISE_PROBE", "").strip() not in ("", "0", "false")
 LAYER = os.environ.get("NOISE_LAYER", "").strip()
 # the 1.1 GB archive survives between runs here, so a retry costs a minute
 CACHE = os.environ.get("NOISE_CACHE", "/tmp/noise-cache/noise.zip")
+# the archive the page scrape resolves to — recorded for provenance when a warm
+# cache means we never go and look
+KNOWN_URL = "https://files-miljoegis.mim.dk/noise2022/2022_noise_tab.zip"
 
 # corridor: Koebenhavn -> Hilleroed / Frederikssund / the coast (Region Hovedstaden)
 W, S, E, N = 12.05, 55.58, 12.70, 55.96
@@ -163,7 +166,15 @@ def feature_db(feat, cat_field, iso_pair):
 
 
 # ---------------------------------------------------------------- 1) locate
-if DIRECT:
+# With the archive already cached there is nothing to look up, and going to the
+# network anyway means a flaky mst.dk can fail a run that needed no network at
+# all — which is exactly what happened once.
+cached = os.path.exists(CACHE) and os.path.getsize(CACHE) > 1_000_000_000
+if cached and not DIRECT and not PROBE:
+    url = KNOWN_URL
+    print(f"1) using the cached archive ({os.path.getsize(CACHE)/1e6:.1f} MB) — no network needed",
+          flush=True)
+elif DIRECT:
     url = DIRECT
     print("1) NOISE_URL given, skipping the page scrape", flush=True)
 else:
@@ -195,19 +206,21 @@ else:
     url = best[0]
 
 print(f"\n2) target: {url}", flush=True)
-st, clen, ctype = head(url, referer=PAGE)
-want = int(clen) if clen and clen.isdigit() else None
-print(f"   HEAD {st} · {(want/1e6):.1f} MB · {ctype}" if want else f"   HEAD {st} · ? · {ctype}",
-      flush=True)
-if PROBE:
-    sys.exit(0)
-
-if os.path.exists(CACHE) and (want is None or abs(os.path.getsize(CACHE) - want) < 1024):
-    print(f"   cache hit: {CACHE} ({os.path.getsize(CACHE)/1e6:.1f} MB) — not re-downloading",
-          flush=True)
+if cached and not DIRECT and not PROBE:
+    print("   already on disk, skipping the HEAD", flush=True)
 else:
-    got = download(url, CACHE, referer=PAGE)
-    print(f"   downloaded {got/1e6:.1f} MB", flush=True)
+    st, clen, ctype = head(url, referer=PAGE)
+    want = int(clen) if clen and clen.isdigit() else None
+    print(f"   HEAD {st} · {(want/1e6):.1f} MB · {ctype}" if want else f"   HEAD {st} · ? · {ctype}",
+          flush=True)
+    if PROBE:
+        sys.exit(0)
+    if os.path.exists(CACHE) and (want is None or abs(os.path.getsize(CACHE) - want) < 1024):
+        print(f"   cache hit: {CACHE} ({os.path.getsize(CACHE)/1e6:.1f} MB) — not re-downloading",
+              flush=True)
+    else:
+        got = download(url, CACHE, referer=PAGE)
+        print(f"   downloaded {got/1e6:.1f} MB", flush=True)
 
 # ---------------------------------------------------------------- 3) index
 print("\n3) reading the archive index…", flush=True)
