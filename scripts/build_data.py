@@ -54,20 +54,19 @@ TYPES = ["condo", "villa"]  # the two addressTypes filters we query boligsiden w
 # that is a flat in a larger building is a "condo" (lejlighed).
 ADDR_TYPE_T = {
     "villa": "villa",
-    "terraced house": "villa",      # rækkehus
-    "farm": "villa",                # landejendom
-    "hobby farm": "villa",          # hobbylandbrug
-    "holiday house": "villa",       # fritidshus
+    "terraced house": "villa",      # rækkehus — an ordinary owner-occupied home
     "condo": "condo",
     "villa apartment": "condo",     # villalejlighed — a flat, not a house
 }
+# Dropped entirely: these aren't ordinary homes and belong to a different market.
+# A landejendom/hobbylandbrug is priced on land and outbuildings, and a
+# fritidshus (sommerhus) can't be a year-round residence — mixing them in would
+# distort both the villa statistics and the fair-value model's comparables.
+ADDR_TYPE_SKIP = {"farm", "hobby farm", "holiday house"}
 # precise Danish label kept for display, so a rækkehus doesn't read as "Villa"
 ADDR_TYPE_DA = {
     "villa": "Villa",
     "terraced house": "Rækkehus",
-    "farm": "Landejendom",
-    "hobby farm": "Hobbylandbrug",
-    "holiday house": "Fritidshus",
     "condo": "Ejerlejl.",
     "villa apartment": "Villalejl.",
 }
@@ -184,6 +183,9 @@ def trim(case, qtype=None):
     lat, lon = coords.get("lat"), coords.get("lon")
     if lat is None or lon is None:
         return None
+    raw_type = str(case.get("addressType") or "").strip().lower()
+    if raw_type in ADDR_TYPE_SKIP:      # landejendom / hobbylandbrug / fritidshus
+        return None
     st_name, st_corr, st_d, st_is = nearest_station(lat, lon)
     # nearest S-train specifically (may differ from overall nearest)
     strain_only = min(
@@ -198,9 +200,8 @@ def trim(case, qtype=None):
         # direction: its villa filter also returns farms/fritidshuse, and its
         # condo filter returns rækkehuse. Unknown/missing types fall back to the
         # queried filter. "sub" keeps the precise Danish label for the card.
-        "t": ADDR_TYPE_T.get(str(case.get("addressType") or "").strip().lower())
-             or (qtype if qtype in ("condo", "villa") else "condo"),
-        "sub": ADDR_TYPE_DA.get(str(case.get("addressType") or "").strip().lower()),
+        "t": ADDR_TYPE_T.get(raw_type) or (qtype if qtype in ("condo", "villa") else "condo"),
+        "sub": ADDR_TYPE_DA.get(raw_type),
         "p": case.get("priceCash"),
         "m2p": case.get("perAreaPrice"),
         "a": case.get("housingArea"),
@@ -1400,18 +1401,22 @@ def main():
         for t in TYPES:
             got = 0
             for case in fetch(muni, t):
+                # count every raw type we see (including the ones we drop) so the
+                # vocabulary log stays honest about what boligsiden returns
+                k = (t, str(case.get("addressType")))
+                atypes[k] = atypes.get(k, 0) + 1
                 rec = trim(case, t)
                 if rec is None:
                     continue
-                k = (t, str(case.get("addressType")))
-                atypes[k] = atypes.get(k, 0) + 1
                 out.append(rec)
                 counts[rec["t"]] += 1
                 got += 1
             print(f"  {name:16} {t:6} {got}")
     print("  addressType vocabulary (queried → raw):")
     for (qt, at), n in sorted(atypes.items(), key=lambda kv: -kv[1]):
-        print(f"    {qt:6} → {at:24} {n}")
+        mark = ("  [dropped — not an ordinary home]"
+                if str(at).strip().lower() in ADDR_TYPE_SKIP else "")
+        print(f"    {qt:6} → {at:24} {n}{mark}")
     uniq = {r["id"]: r for r in out if r["id"]}
     listings = list(uniq.values())
 
