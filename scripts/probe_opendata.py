@@ -65,6 +65,17 @@ CANDIDATES = [
     # ---- docs the thread pointed at ----
     ("SDFI confluence DAR docs",
      "https://confluence.sdfi.dk/pages/viewpage.action?pageId=16056323"),
+
+    # ---- Finans Danmark boligmarkedsstatistik (PxWeb, same engine as DST) ----
+    # An OFFICIAL realised-price series would let the comps time index stop
+    # depending on medians we derive ourselves from scraped sold data.
+    ("RKR statistikbank table 204", "https://rkr.statistikbank.dk/204"),
+    ("RKR PxWeb API root", "https://rkr.statistikbank.dk/api/v1/da/"),
+    ("RKR PxWeb API db list", "https://rkr.statistikbank.dk/api/v1/da/RKR/"),
+    ("DST api: EJ56 metadata (index we already use)",
+     "https://api.statbank.dk/v1/tableinfo/EJ56?format=JSON"),
+    ("DST api: search boligmarked tables",
+     "https://api.statbank.dk/v1/tables?format=JSON&subjects=02"),
 ]
 
 
@@ -104,7 +115,9 @@ print("Detail on the ones that matter")
 print("=" * 78)
 
 for name in ("DAWA jordstykke (matrikel!) by point",
-             "DAWA adgangsadresse -> jordstykke+BFE"):
+             "DAWA adgangsadresse -> jordstykke+BFE",
+             "RKR PxWeb API root",
+             "RKR PxWeb API db list"):
     code, body, _ = results.get(name, (None, b"", ""))
     print(f"\n--- {name} (HTTP {code})")
     if not body:
