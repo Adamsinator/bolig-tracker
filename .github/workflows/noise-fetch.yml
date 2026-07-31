@@ -32,10 +32,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # 45 minutes of the run is the download alone. Keeping the archive lets a
-      # retry — a different layer, a different resolution — cost about a minute.
-      - name: Cache the source archive
-        uses: actions/cache@v4
+      # Half the run is the download alone. Restore and save are split so the
+      # archive is kept even when a later step fails — the combined action only
+      # saves on success, which threw away a 25-minute download once already.
+      - name: Restore the source archive
+        id: noisecache
+        uses: actions/cache/restore@v4
         with:
           path: /tmp/noise-cache
           key: noise-2022-tab
@@ -46,6 +48,12 @@ jobs:
           NOISE_LAYER: ${{ inputs.layer }}
         # the system python has the GDAL bindings; setup-python's does not
         run: /usr/bin/python3 scripts/fetch_noise_once.py
+      - name: Save the source archive
+        if: always() && steps.noisecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/noise-cache
+          key: noise-2022-tab
       - name: Commit the grid
         run: |
           git config user.name  "github-actions[bot]"

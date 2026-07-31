@@ -117,19 +117,48 @@ def download(url, dest, referer=None):
     return got
 
 
-def band_db(category):
-    """'Lden5559' -> 57, 'Lden75' -> 77. The mapping publishes 5 dB bands; the
-    midpoint is the honest single number, and the open-ended top band is treated
-    as one more 5 dB step rather than pretending to know how loud it gets."""
-    nums = re.findall(r"\d+", str(category or ""))
-    if not nums:
+DB_MIN, DB_MAX = 40, 95            # sanity range for a facade Lden reading
+
+
+def _from_lo(lo):
+    """A band's lower bound to the single number we store. Bands are 5 dB wide,
+    so the midpoint is lower+2 — and the open-ended top band gets the same step
+    rather than pretending to know how loud it really is."""
+    if lo is None or not (DB_MIN <= lo <= DB_MAX):
         return None
-    d = "".join(nums)
+    return int(lo) + 2
+
+
+def band_db(category):
+    """The eu_* layers label the band in one string: 'Lden5559' -> 57, 'Lden75'
+    -> 77."""
+    d = "".join(re.findall(r"\d+", str(category or "")))
     if len(d) >= 4:
-        lo, hi = int(d[:2]), int(d[2:4])
-        return int(round((lo + hi) / 2))
+        return _from_lo(int(d[:2]))
     if len(d) == 2:
-        return int(d) + 2
+        return _from_lo(int(d))
+    return None
+
+
+def iso_db(a, b):
+    """The dk_* layers carry the band as two numeric bounds (isov1/isov2, or
+    iso1/iso2). Take the lower of the two — which end is which varies by layer."""
+    vals = []
+    for v in (a, b):
+        try:
+            if v is not None and str(v).strip() != "":
+                vals.append(float(v))
+        except (TypeError, ValueError):
+            pass
+    vals = [v for v in vals if DB_MIN <= v <= DB_MAX]
+    return _from_lo(min(vals)) if vals else None
+
+
+def feature_db(feat, cat_field, iso_pair):
+    if cat_field:
+        return band_db(feat.GetField(cat_field))
+    if iso_pair:
+        return iso_db(feat.GetField(iso_pair[0]), feat.GetField(iso_pair[1]))
     return None
 
 
@@ -247,20 +276,40 @@ for src in srcs:
 
     fields = [lyr.GetLayerDefn().GetFieldDefn(i).GetName()
               for i in range(lyr.GetLayerDefn().GetFieldCount())]
+    # Two schemas ship in the same archive: the eu_* layers label the band in a
+    # single 'category' string, the dk_* ones give it as two numeric bounds
+    # (isov1/isov2 or iso1/iso2).
     cat = next((f for f in fields if f.lower() == "category"), None)
     if not cat:
         cat = next((f for f in fields if re.search(r"lden|categor|klasse|niveau", f, re.I)), None)
+    iso_pair = None
     if not cat:
-        print(f"   !! {os.path.basename(src)}: no category field in {fields}", file=sys.stderr)
+        lo_f = next((f for f in fields if re.fullmatch(r"iso_?v?1", f, re.I)), None)
+        hi_f = next((f for f in fields if re.fullmatch(r"iso_?v?2", f, re.I)), None)
+        if lo_f and hi_f:
+            iso_pair = (lo_f, hi_f)
+    if not cat and not iso_pair:
+        print(f"   !! {os.path.basename(src)}: no band field in {fields}", file=sys.stderr)
         ds = None
         continue
+
+    # show the raw values before trusting them — a silent mis-parse here is what
+    # produced 10812 nulls last time
+    lyr.ResetReading()
+    sample = []
+    for k, feat in enumerate(lyr):
+        if k >= 3:
+            break
+        sample.append({f: feat.GetField(f) for f in (list(cat and [cat] or []) + list(iso_pair or []))})
+    print(f"   {os.path.basename(src)}: band field "
+          f"{cat or '/'.join(iso_pair)} · sample {sample}", flush=True)
 
     # turn the band label into a number GDAL can burn
     lyr.CreateField(ogr.FieldDefn("db", ogr.OFTInteger))
     seen, bad = {}, 0
     lyr.ResetReading()
     for feat in lyr:
-        v = band_db(feat.GetField(cat))
+        v = feature_db(feat, cat, iso_pair)
         if v is None:
             bad += 1
             continue
