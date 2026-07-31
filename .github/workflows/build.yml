@@ -38,7 +38,14 @@ jobs:
           git add data/poi.json 2>/dev/null || true   # optional — amenities overlay (issue #7)
           if git diff --cached --quiet; then
             echo "No changes in listings — nothing to commit."
-          else
-            git commit -m "Update housing data ($(date -u +%Y-%m-%d))"
-            git push
+            exit 0
           fi
+          git commit -m "Update housing data ($(date -u +%Y-%m-%d))"
+          # the build takes ~11 minutes and main moves while it runs, so a plain
+          # push loses the race and throws the whole scrape away
+          for i in 1 2 3 4; do
+            git pull --rebase origin main && git push && exit 0
+            echo "push attempt $i failed, retrying"
+            sleep $((2 ** i))
+          done
+          exit 1
