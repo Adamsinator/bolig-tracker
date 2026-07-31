@@ -1694,7 +1694,9 @@ function card(r) {
   if (r.t === 'villa' && r.lot) meta.append(el('span', {}, `grund ${r.lot.toLocaleString('da-DK')} m²`));
   if (r.r) meta.append(el('span', {}, `${r.r} vær.`));
   if (r.y) meta.append(el('span', {}, `opf. ${r.y}`));
-  if (r.e) meta.append(el('span', {}, `E: ${String(r.e).toUpperCase().replace('2015', ' 2015')}`));
+  // "E: E" read as a typo rather than an energimærke of E — spell the label out
+  if (r.e) meta.append(el('span', { title: 'Energimærke' },
+    `Energi ${String(r.e).toUpperCase().replace('2015', ' 2015')}`));
   if (r.d != null) meta.append(el('span', {}, `${r.d} dage`));
   if (r.chg < 0) meta.append(el('span', { class: 'cut' }, `↓ ${Math.abs(r.chg).toLocaleString('da-DK', { maximumFractionDigits: 1 })} %`));
   if (r.poi) {

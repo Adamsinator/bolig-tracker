@@ -63,7 +63,7 @@ jobs:
             echo "nothing to commit"
             exit 0
           fi
-          git commit -m "Add road-traffic noise 2022 (Lden) as a 20 m dB grid"
+          git commit -m "Add road-traffic noise 2022 (Lden) as a dB grid"
           # main moves while this job runs — rebase onto it rather than failing
           for i in 1 2 3 4; do
             git pull --rebase origin main && git push && exit 0
