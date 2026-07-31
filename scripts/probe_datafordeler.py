@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Temporary probe: which Datafordeler services is our user actually subscribed
-to, and what do they return?
+"""Temporary probe #2: is the 403 from Datafordeler "we don't know you" or "you
+aren't subscribed to this service"?
 
-An account existing is not the same as an account being subscribed — every
-service is granted separately — so this establishes what we can really read
-before any of it gets designed into the build.
+Probe #1 got 403 "Unauthorized access" on BBR, Ejendomsvurdering and EBR under
+both auth styles, which is ambiguous. This discriminates by sending deliberately
+wrong credentials alongside the real ones:
 
-Credentials come from the environment and are never printed. Every URL is
-redacted before it reaches a log line, because Datafordeler takes the username
-and password as query parameters and this repo is public.
+  wrong -> 401 and real -> 403   => the account is recognised, it just lacks the
+                                    service subscription (fix: self-service)
+  wrong -> 403 and real -> 403   => the message is generic; more likely the user
+                                    type or auth scheme is wrong
+
+Also tries HTTP Basic, since Datafordeler documents more than one scheme.
+Credentials never reach stdout; every URL is redacted before logging.
 """
-import json
+import base64
 import os
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -21,114 +24,83 @@ import urllib.request
 USER = os.environ.get("DATAFORDELER_USER", "").strip()
 PASS = os.environ.get("DATAFORDELER_PASS", "").strip()
 APIK = os.environ.get("DATAFORDELER_API", "").strip()
-
 SECRETS = [s for s in (USER, PASS, APIK) if s]
 
 
 def redact(text):
-    """Never let a credential reach stdout, even inside an exception message."""
     out = str(text)
     for s in SECRETS:
-        if s:
-            out = out.replace(s, "***")
-            out = out.replace(urllib.parse.quote(s, safe=""), "***")
+        out = out.replace(s, "***").replace(urllib.parse.quote(s, safe=""), "***")
     return out
 
 
-print("credentials present:",
-      f"user={'yes' if USER else 'NO'}",
-      f"pass={'yes' if PASS else 'NO'}",
-      f"api={'yes' if APIK else 'NO'}")
-if not (USER and PASS) and not APIK:
-    sys.exit("no credentials in the environment — check the secret names")
-
-UA = {"User-Agent": "bolig-tracker/1.0 (+https://boligtracker.dk)",
-      "Accept": "application/json"}
-
-
-def call(label, base, params, auth):
-    """auth: 'userpass' | 'apikey' | 'none'"""
-    p = dict(params)
-    if auth == "userpass":
-        p.update(username=USER, password=PASS)
-    elif auth == "apikey":
-        p.update(apikey=APIK)
-    url = base + "?" + urllib.parse.urlencode(p)
-    req = urllib.request.Request(url, headers=UA)
-    try:
-        with urllib.request.urlopen(req, timeout=40) as r:
-            body = r.read(3000)
-            ct = (r.headers.get("Content-Type") or "?").split(";")[0]
-            print(f"  {r.status:>3} {auth:<9} {ct:<20} {label}")
-            return r.status, body
-    except urllib.error.HTTPError as ex:
-        body = b""
-        try:
-            body = ex.read(400)
-        except Exception:
-            pass
-        hint = {401: " <- not authenticated", 403: " <- not subscribed?",
-                404: " <- wrong path"}.get(ex.code, "")
-        print(f"  {ex.code:>3} {auth:<9} {'':<20} {label}{hint}")
-        if body:
-            print("        ", redact(body[:200].decode("utf-8", "replace")).replace("\n", " "))
-        return ex.code, body
-    except Exception as ex:
-        print(f"  --- {auth:<9} {'':<20} {label}  ({type(ex).__name__}: "
-              f"{redact(str(ex))[:80]})")
-        return None, b""
-
+if not (USER and PASS):
+    sys.exit("need DATAFORDELER_USER and DATAFORDELER_PASS")
 
 DF = "https://services.datafordeler.dk"
-# Hørsholm; Sofievej 11 sits in matrikel 10e, Smidstrup By, Rungsted (ejerlav 130752)
-KOMMUNE, EJERLAV, MATRNR = "0223", "130752", "10e"
+BBR = f"{DF}/BBR/BBRPublic/1/rest/bygning"
+UA = {"User-Agent": "bolig-tracker/1.0 (+https://boligtracker.dk)", "Accept": "application/json"}
 
-print("\n=== BBR (building register) ===")
-for auth in ("userpass", "apikey"):
-    call("BBR bygning by kommune", f"{DF}/BBR/BBRPublic/1/rest/bygning",
-         {"Kommunekode": KOMMUNE, "pagesize": "1"}, auth)
-    call("BBR grund", f"{DF}/BBR/BBRPublic/1/rest/grund",
-         {"Kommunekode": KOMMUNE, "pagesize": "1"}, auth)
-    call("BBR enhed", f"{DF}/BBR/BBRPublic/1/rest/enhed",
-         {"Kommunekode": KOMMUNE, "pagesize": "1"}, auth)
 
-print("\n=== Matriklen ===")
-for auth in ("userpass", "apikey"):
-    call("Matrikel jordstykke (REST)", f"{DF}/MATRIKLEN2/MATRIKLEN/1/REST/SamletFastEjendom",
-         {"Ejerlavskode": EJERLAV, "Matrikelnummer": MATRNR}, auth)
-    call("Matrikel WFS capabilities",
-         f"{DF}/MATRIKLEN2/MatrikelGaeldendeOgForeloebigWFS/1.0.0/WFS",
-         {"service": "WFS", "request": "GetCapabilities"}, auth)
-
-print("\n=== Ejendomsvurdering + EBR ===")
-for auth in ("userpass", "apikey"):
-    call("Ejendomsvurdering by BFE", f"{DF}/EJENDOMSVURDERING/Ejendomsvurdering/1/REST/"
-         "HentEjendomsvurderingerForBFE", {"BFEnummer": "2001642"}, auth)
-    call("EBR ejendomsbeliggenhed", f"{DF}/EBR/Ejendomsbeliggenhed/1/REST/Ejendomsbeliggenhed",
-         {"Kommunekode": KOMMUNE, "pagesize": "1"}, auth)
-
-print("\n=== DAR (addresses — DAWA's successor path) ===")
-for auth in ("userpass", "none"):
-    call("DAR husnummer", f"{DF}/DAR/DAR/3.0.0/REST/husnummer",
-         {"kommunekode": KOMMUNE, "pagesize": "1"}, auth)
-
-# Show the shape of whatever worked, so the real implementation has something
-# concrete to target.
-print("\n=== payload shape of the first BBR call that succeeds ===")
-for auth in ("userpass", "apikey"):
-    code, body = call("BBR bygning (detail)", f"{DF}/BBR/BBRPublic/1/rest/bygning",
-                      {"Kommunekode": KOMMUNE, "pagesize": "1"}, auth)
-    if code == 200 and body:
+def go(label, url, headers=None):
+    req = urllib.request.Request(url, headers={**UA, **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=40) as r:
+            body = r.read(400).decode("utf-8", "replace")
+            print(f"  {r.status:>3}  {label}")
+            print(f"        {redact(body)[:160]}")
+            return r.status
+    except urllib.error.HTTPError as ex:
+        body = ""
         try:
-            data = json.loads(body.decode("utf-8", "replace"))
+            body = ex.read(300).decode("utf-8", "replace")
         except Exception:
-            print("   not json:", redact(body[:300].decode("utf-8", "replace")))
-            break
-        rec = data[0] if isinstance(data, list) and data else data
-        if isinstance(rec, dict):
-            print("   fields:", json.dumps(sorted(rec)[:40], ensure_ascii=False))
-            keep = {k: rec[k] for k in list(rec)[:12]}
-            print("   sample:", redact(json.dumps(keep, ensure_ascii=False))[:900])
-        break
+            pass
+        print(f"  {ex.code:>3}  {label}")
+        if body:
+            print(f"        {redact(body)[:160]}")
+        return ex.code
+    except Exception as ex:
+        print(f"  ---  {label}  ({type(ex).__name__}: {redact(str(ex))[:70]})")
+        return None
 
-print("\nDone. Delete this script and its workflow once read.")
+
+q = {"Kommunekode": "0223", "pagesize": "1"}
+
+print("=== does Datafordeler recognise the account at all? ===")
+real = go("real credentials, query params",
+          BBR + "?" + urllib.parse.urlencode({**q, "username": USER, "password": PASS}))
+fake = go("deliberately wrong credentials",
+          BBR + "?" + urllib.parse.urlencode({**q, "username": "no_such_user_xyz",
+                                              "password": "definitely_wrong_xyz"}))
+none = go("no credentials at all", BBR + "?" + urllib.parse.urlencode(q))
+
+print("\n=== other auth schemes with the real account ===")
+tok = base64.b64encode(f"{USER}:{PASS}".encode()).decode()
+go("HTTP Basic", BBR + "?" + urllib.parse.urlencode(q), {"Authorization": f"Basic {tok}"})
+if APIK:
+    go("api key as header X-Api-Key", BBR + "?" + urllib.parse.urlencode(q),
+       {"X-Api-Key": APIK})
+    go("api key as ?token=", BBR + "?" + urllib.parse.urlencode({**q, "token": APIK}))
+
+print("\n=== is the API key a Dataforsyningen (DAWA/kort) key instead? ===")
+if APIK:
+    go("Dataforsyningen DHM with token",
+       "https://api.dataforsyningen.dk/DHMTerraen?" + urllib.parse.urlencode(
+           {"geop": "12.561188,55.86308", "elevationmodel": "dtm", "token": APIK}))
+
+print("\n=== verdict ===")
+if real == 403 and fake in (401, 400):
+    print("  Account IS recognised. 403 = missing service subscription.")
+    print("  -> subscribe the user to BBR / Matriklen / Ejendomsvurdering / EBR")
+    print("     in Datafordeler self-service, then re-run.")
+elif real == 403 and fake == 403:
+    print("  Wrong credentials give the SAME 403, so the message is generic.")
+    print("  -> most likely the user is not a 'tjenestebruger'/webbruger, or the")
+    print("     service needs a different auth scheme. Check the user type.")
+elif real == 200:
+    print("  It works — BBR is readable.")
+else:
+    print(f"  Inconclusive: real={real} fake={fake} none={none}")
+
+print("\nDelete this script and its workflow once read.")
