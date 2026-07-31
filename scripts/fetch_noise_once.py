@@ -304,18 +304,26 @@ for src in srcs:
     print(f"   {os.path.basename(src)}: band field "
           f"{cat or '/'.join(iso_pair)} · sample {sample}", flush=True)
 
-    # turn the band label into a number GDAL can burn
+    # turn the band label into a number GDAL can burn. Wrap the writes in one
+    # transaction — GPKG otherwise commits per row, which turns tens of thousands
+    # of features into a very long wait.
     lyr.CreateField(ogr.FieldDefn("db", ogr.OFTInteger))
     seen, bad = {}, 0
     lyr.ResetReading()
-    for feat in lyr:
-        v = feature_db(feat, cat, iso_pair)
-        if v is None:
-            bad += 1
-            continue
-        feat.SetField("db", v)
-        lyr.SetFeature(feat)
-        seen[v] = seen.get(v, 0) + 1
+    lyr.StartTransaction()
+    try:
+        for feat in lyr:
+            v = feature_db(feat, cat, iso_pair)
+            if v is None:
+                bad += 1
+                continue
+            feat.SetField("db", v)
+            lyr.SetFeature(feat)
+            seen[v] = seen.get(v, 0) + 1
+        lyr.CommitTransaction()
+    except Exception:
+        lyr.RollbackTransaction()
+        raise
     ds = None
     bands = {k: seen[k] for k in sorted(seen)}
     print(f"   {os.path.basename(src)}: {n} features · bands {bands}"
