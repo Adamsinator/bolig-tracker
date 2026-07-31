@@ -362,7 +362,11 @@ for path in clipped:
 for v in sorted(levels):
     for path in clipped:
         gdal.Rasterize(mem, path, options=gdal.RasterizeOptions(
-            bands=[1], burnValues=[v], where=f"db = {v}", allTouched=True))
+            # cell-centre semantics, not all-touched: we sample this grid at a
+            # single address point, and all-touched paints every cell a band
+            # merely clips. Combined with taking the loudest band that would
+            # bias every home near a loud ribbon up a whole band.
+            bands=[1], burnValues=[v], where=f"db = {v}", allTouched=False))
     print(f"   burned {v} dB", flush=True)
 
 grid = mem.GetRasterBand(1).ReadAsArray().tobytes()
