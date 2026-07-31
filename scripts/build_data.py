@@ -1209,7 +1209,11 @@ def fetch_sold(listings):
                         la = s.get("latitude") or s.get("Latitude")
                         lo = s.get("longitude") or s.get("Longitude")
                         if la and lo:
-                            points.append((round(la, 5), round(lo, 5), m2, t))
+                            # carry quarter/size/year so comps can be time-adjusted
+                            # and matched on similarity, not just location + type
+                            points.append((round(la, 5), round(lo, 5), m2, t, q,
+                                           sz if sz and sz > 0 else None,
+                                           int(yr) if yr and 1800 < yr <= now.year else None))
                 if d and d < cutoff:
                     stop = True
             rows_seen += len(results)
@@ -1281,42 +1285,113 @@ def fetch_sold(listings):
             "points": points}   # popped before writing sold.json — used for per-listing comps
 
 
-# Attach each listing's local realised benchmark: the median kr/m² of nearby
-# arm's-length sales (same type) from the last 12 months — a per-house comparable
-# drawn straight from tinglysning. Expands the radius until enough comps exist.
+# Attach each listing's local realised benchmark: nearby arm's-length sales of
+# the same type, drawn from tinglysning. Three things make the benchmark sharper
+# than a plain radius median (issue #20):
+#   • each sale is time-adjusted to today with the corridor's own quarterly
+#     medians, so a 23-month-old sale no longer counts like last month's,
+#   • comps are matched on living area and build year, because kr/m² falls
+#     systematically with size and a 45 m² flat is no benchmark for a 140 m² one,
+#   • the nearest K are distance-weighted rather than a hard radius cut-off, so a
+#     sparse area degrades gracefully instead of jumping to a 2 km median.
+# The spread of the comps is stored too, so thin/noisy benchmarks can be told
+# apart from tight ones.
 COMP_CELL = 0.01                 # ~0.6–1.1 km grid cell for fast neighbour lookup
-COMP_RADII = [500, 1000, 2000]   # metres — first radius with >= COMP_MIN comps wins
-COMP_MIN = 6
+COMP_MAX_R = 2000                # metres — outer bound on how far we will look
+COMP_MIN = 6                     # fewer than this and we don't claim a benchmark
+COMP_K = 25                      # use the nearest K matched sales
+COMP_AREA_TOL = 0.30             # ±30 % living area
+COMP_YEAR_TOL = 20               # ±20 years build year
+COMP_HALF = 500.0                # metres — distance at which a comp's weight halves
 
-def annotate_comps(listings, points):
+
+def _weighted_median(pairs):
+    """pairs = [(value, weight)] → the weighted median value."""
+    if not pairs:
+        return None
+    pairs = sorted(pairs)
+    half = sum(w for _, w in pairs) / 2.0
+    acc = 0.0
+    for v, w in pairs:
+        acc += w
+        if acc >= half:
+            return v
+    return pairs[-1][0]
+
+
+def _time_factors(series_all):
+    """Multiplier that lifts a quarter's kr/m² onto today's level, per type,
+    from the corridor's own pooled quarterly medians."""
+    factors = {}
+    for t, qm in (series_all or {}).items():
+        if not qm:
+            continue
+        latest = max(qm)
+        base = qm.get(latest)
+        if not base:
+            continue
+        factors[t] = {q: base / v for q, v in qm.items() if v}
+    return factors
+
+
+def annotate_comps(listings, points, series_all=None):
     if not points:
         return 0
+    factors = _time_factors(series_all)
+    if factors:
+        print(f"    comps: time-adjusting via corridor quarterly medians "
+              f"({', '.join(f'{t}:{len(f)}q' for t, f in factors.items())})")
     grid = {}
     for p in points:
         grid.setdefault((int(p[0] / COMP_CELL), int(p[1] / COMP_CELL)), []).append(p)
-    done = 0
+    done = adjusted = 0
     for r in listings:
         la, lo, t = r.get("lat"), r.get("lon"), r.get("t")
         if la is None or lo is None:
             continue
         ci, cj = int(la / COMP_CELL), int(lo / COMP_CELL)
+        ftab = factors.get(t, {})
         cand = []
-        for di in range(-4, 5):        # ±4 cells covers the 2 km max radius in lon at 55°N
+        for di in range(-4, 5):        # ±4 cells covers the 2 km bound at 55°N
             for dj in range(-4, 5):
-                for (pa, po, pm2, pt) in grid.get((ci + di, cj + dj), ()):
-                    if pt == t:
-                        cand.append((haversine_m(la, lo, pa, po), pm2))
+                for p in grid.get((ci + di, cj + dj), ()):
+                    if p[3] != t:
+                        continue
+                    d = haversine_m(la, lo, p[0], p[1])
+                    if d > COMP_MAX_R:
+                        continue
+                    q, sz, yr = (p[4], p[5], p[6]) if len(p) > 6 else (None, None, None)
+                    cand.append((d, p[2] * ftab.get(q, 1.0), sz, yr))
         if not cand:
             continue
-        cand.sort(key=lambda x: x[0])
-        for radius in COMP_RADII:
-            near = [m2 for dist, m2 in cand if dist <= radius]
-            if len(near) >= COMP_MIN:
-                r["cmpM2"] = round(median(near))
-                r["cmpN"] = len(near)
-                r["cmpR"] = radius
-                done += 1
-                break
+        # prefer sales of a similar size and age; fall back to all nearby sales
+        # of the same type when that leaves too few to be meaningful
+        a, y = r.get("a"), r.get("y")
+        near = cand
+        if a:
+            lo_a, hi_a = a * (1 - COMP_AREA_TOL), a * (1 + COMP_AREA_TOL)
+            sim = [c for c in cand
+                   if c[2] and lo_a <= c[2] <= hi_a
+                   and (not y or not c[3] or abs(c[3] - y) <= COMP_YEAR_TOL)]
+            if len(sim) >= COMP_MIN:
+                near = sim
+                adjusted += 1
+        near.sort(key=lambda c: c[0])
+        near = near[:COMP_K]
+        if len(near) < COMP_MIN:
+            continue
+        vals = [(c[1], 1.0 / (1.0 + c[0] / COMP_HALF)) for c in near]
+        m2 = _weighted_median(vals)
+        if not m2:
+            continue
+        srt = sorted(v for v, _ in vals)
+        q1, q3 = srt[len(srt) // 4], srt[(3 * len(srt)) // 4]
+        r["cmpM2"] = round(m2)
+        r["cmpN"] = len(near)
+        r["cmpR"] = int(near[-1][0])          # how far the farthest used comp sits
+        r["cmpS"] = round((q3 - q1) / m2 * 100)   # spread as % of the benchmark
+        done += 1
+    print(f"    comps: {adjusted}/{done} used size/age-matched sales")
     return done
 
 
@@ -1540,7 +1615,7 @@ def main():
     print("Fetching realised sold prices (Boliga / tinglysning)…")
     sold = fetch_sold(listings)
     if sold:
-        n_comp = annotate_comps(listings, sold.pop("points", []))
+        n_comp = annotate_comps(listings, sold.pop("points", []), sold.get("seriesAll"))
         print(f"  comps: {n_comp}/{len(listings)} listings got a local realised benchmark")
 
     with open(os.path.join(data_dir, "listings.json"), "w", encoding="utf-8") as f:
