@@ -1,7 +1,12 @@
 name: Fetch noise 2022 (one-off)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Direct archive URL (skips scraping the download page)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -17,6 +22,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Fetch + clip
+        env:
+          NOISE_URL: ${{ inputs.url }}
         run: python3 scripts/fetch_noise_once.py
       - name: Commit the clipped layer
         run: |
