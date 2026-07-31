@@ -1484,9 +1484,12 @@ def fetch_geo_features():
     layers = {
         # motorways and trunk roads — the noisy ones you don't want to back onto
         "mot": f'way["highway"~"^(motorway|trunk)$"]({s},{w},{n},{e});',
-        # Øresund coastline plus named lakes (Furesø, Bagsværd Sø, …)
-        "wat": (f'way["natural"="coastline"]({s},{w},{n},{e});'
-                f'way["natural"="water"]["name"]({s},{w},{n},{e});'),
+        # The coast is its own thing: first row on Strandvejen carries a premium
+        # nothing inland matches, and pooling it with lakes made Øresund and
+        # Bagsværd Sø the same feature. Kept separate so the model can price them
+        # differently — "wat" stays for builds whose data predates the split.
+        "sea": f'way["natural"="coastline"]({s},{w},{n},{e});',
+        "lak": f'way["natural"="water"]["name"]({s},{w},{n},{e});',
         # forest, woodland and parks
         "grn": (f'way["landuse"="forest"]({s},{w},{n},{e});'
                 f'way["natural"="wood"]({s},{w},{n},{e});'

@@ -41,11 +41,22 @@
     const poiOf = (r, k) => (r.poi && r.poi[k] != null) ? r.poi[k] : medPoi[k];
     // location quality (issue #8): motorway noise vs. water and nature nearby.
     // Same median imputation so a gap never reads as "right next to it".
-    const GEO_KEYS = ['mot', 'wat', 'grn'];
+    // The coast is fetched separately from lakes ('sea'/'lak'); older data has
+    // them pooled as 'wat'. Take whichever this build has so the model keeps
+    // working across the change.
+    const hasSea = rows.some(r => r.geo && r.geo.sea != null);
+    const GEO_KEYS = hasSea ? ['mot', 'sea', 'lak', 'grn'] : ['mot', 'wat', 'grn'];
+    const SEA = hasSea ? 'sea' : 'wat';
     const hasGeo = rows.some(r => r.geo && r.geo.mot != null);
     const medGeo = {};
     if (hasGeo) GEO_KEYS.forEach(k => { medGeo[k] = median(rows.map(r => r.geo && r.geo[k]).filter(v => v != null)) || 1000; });
     const geoOf = (r, k) => (r.geo && r.geo[k] != null) ? r.geo[k] : medGeo[k];
+    // Distance to the shore alone can't say what a buyer is paying for. The
+    // premium is a cliff at the water's edge, not a gradient — first row on
+    // Strandvejen against second row — so add a term that decays over ~150 m on
+    // top of the broad log distance, and let houses carry their own slope: a
+    // garden on the water is worth more than a flat 80 m back from it.
+    const seaNear = r => Math.exp(-geoOf(r, SEA) / 150);
     // road-traffic noise at the façade (Lden, dB) from Miljøstyrelsen's 2022 EU
     // noise mapping. Centred on 55 dB — the level at which the map starts — and
     // scaled by 10 so a whole band moves the feature by half a unit. A home with
@@ -62,7 +73,10 @@
       if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
       if (hasComp) f.push(Math.log(compOf(r)) / 12);
       if (hasPoi) f.push(Math.log(poiOf(r, 'sup') + 1) / 10, Math.log(poiOf(r, 'sch') + 1) / 10, Math.log(poiOf(r, 'day') + 1) / 10);
-      if (hasGeo) GEO_KEYS.forEach(k => f.push(Math.log(geoOf(r, k) + 1) / 10));
+      if (hasGeo) {
+        GEO_KEYS.forEach(k => f.push(Math.log(geoOf(r, k) + 1) / 10));
+        f.push(seaNear(r), seaNear(r) * (r.t === 'villa' ? 1 : 0));
+      }
       if (hasNoise) f.push((dbOf(r) - 55) / 10);
       for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
       return f;
