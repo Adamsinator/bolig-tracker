@@ -7,7 +7,9 @@ and write two compact files consumed by the static site:
 
 No API key, no auth. Dependency-free (stdlib only) so it runs locally and in CI.
 """
+import base64
 import contextlib
+import gzip
 import json
 import math
 import os
@@ -1543,61 +1545,43 @@ NOISE_FLOOR_DB = 50
 
 def annotate_noise(listings, noise):
     """Add r['db'] — road-traffic noise (Lden, façade level) from Miljøstyrelsen's
-    2022 EU noise mapping, in dB. The layer is a set of 5 dB band polygons; a home
-    gets the loudest band its coordinate falls inside, and NOISE_FLOOR_DB if it
-    falls outside all of them. Fail-soft: no layer → no-op, and the model treats a
-    missing r['db'] as "unknown" rather than "quiet"."""
-    if not noise:
+    2022 EU noise mapping, in dB.
+
+    data/noise.json holds a gzipped byte grid built once by fetch_noise_once.py:
+    one dB reading per ~20 m cell, so this is a straight index rather than a
+    point-in-polygon search. A 0 cell means no mapped band, i.e. quieter than the
+    55 dB floor the mapping starts at — that becomes NOISE_FLOOR_DB. Fail-soft:
+    no grid → no-op, and the model treats a missing r['db'] as "unknown" rather
+    than "quiet"."""
+    if not noise or not noise.get("data"):
         return
-    CELL = 0.01                          # ~1.1 km cells
-    grid = {}
-    kept = 0
-    for f in noise.get("features", []):
-        db = f.get("properties", {}).get("db")
-        g = f.get("geometry") or {}
-        if db is None or not g.get("coordinates"):
-            continue
-        polys = g["coordinates"] if g.get("type") == "MultiPolygon" else [g["coordinates"]]
-        for poly in polys:
-            if not poly or not poly[0]:
-                continue
-            xs = [p[0] for p in poly[0]]
-            ys = [p[1] for p in poly[0]]
-            item = (float(db), poly, min(xs), min(ys), max(xs), max(ys))
-            for i in range(int(min(ys) / CELL), int(max(ys) / CELL) + 1):
-                for j in range(int(min(xs) / CELL), int(max(xs) / CELL) + 1):
-                    grid.setdefault((i, j), []).append(item)
-            kept += 1
+    try:
+        grid = gzip.decompress(base64.b64decode(noise["data"]))
+    except Exception as ex:
+        print(f"  noise: could not decode the grid ({ex})", file=sys.stderr)
+        return
+    cols, rows = int(noise["cols"]), int(noise["rows"])
+    if len(grid) != cols * rows:
+        print(f"  noise: grid is {len(grid)} bytes, expected {cols*rows} — skipping",
+              file=sys.stderr)
+        return
+    w, s, e, n_ = (float(v) for v in noise["bbox"])
 
-    def inside(ring, lon, lat):
-        # ray casting; ring is [[lon,lat], …]
-        hit = False
-        n_ = len(ring)
-        for a in range(n_):
-            x1, y1 = ring[a][0], ring[a][1]
-            x2, y2 = ring[(a + 1) % n_][0], ring[(a + 1) % n_][1]
-            if (y1 > lat) != (y2 > lat) and lon < (x2 - x1) * (lat - y1) / (y2 - y1 + 1e-15) + x1:
-                hit = not hit
-        return hit
-
-    n = 0
+    hit = 0
     for r in listings:
         lat, lon = r.get("lat"), r.get("lon")
         if lat is None or lon is None:
             continue
-        best = None
-        for db, poly, x0, y0, x1, y1 in grid.get((int(lat / CELL), int(lon / CELL)), []):
-            if not (x0 <= lon <= x1 and y0 <= lat <= y1):
-                continue
-            if best is not None and db <= best:
-                continue                 # already have a louder band here
-            if inside(poly[0], lon, lat) and not any(inside(h, lon, lat) for h in poly[1:]):
-                best = db
-        r["db"] = int(best) if best is not None else NOISE_FLOOR_DB
-        n += 1
-    loud = sum(1 for r in listings if (r.get("db") or 0) >= 60)
-    print(f"  noise: {kept} band polygons, annotated {n}/{len(listings)} listings "
-          f"({loud} at 60 dB or above)")
+        if not (w <= lon <= e and s <= lat <= n_):
+            continue                     # outside the mapped corridor: leave unknown
+        col = min(cols - 1, int((lon - w) / (e - w) * cols))
+        row = min(rows - 1, int((n_ - lat) / (n_ - s) * rows))
+        v = grid[row * cols + col]
+        r["db"] = int(v) if v else NOISE_FLOOR_DB
+        hit += 1
+    loud = sum(1 for r in listings if (r.get("db") or 0) >= 58)
+    print(f"  noise: {cols}×{rows} grid, annotated {hit}/{len(listings)} listings "
+          f"({loud} at 58 dB or above)")
 
 
 def main():

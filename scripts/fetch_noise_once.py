@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
-"""One-off: pull Miljoestyrelsen's 2022 road-traffic noise mapping, clip it to the
-corridor and write data/noise.json (GeoJSON, EPSG:4326).
+"""One-off: pull Miljoestyrelsen's 2022 road-traffic noise mapping and write
+data/noise.json — a compact dB grid covering the corridor.
 
 EU noise mapping is redone only every ~5 years, so this runs once rather than in
 the daily build. "TAB" on the MiljoeGIS download page is MapInfo TAB (a vector
 format), so GDAL does the reading, clipping and reprojection.
+
+The source contours are ~108 MB of GeoJSON for the corridor alone — too big to
+commit and slow to query per address. Instead the bands are rasterised to a
+20 m grid of dB values, gzipped and base64'd: about a thousandth of the size,
+an O(1) lookup per listing, and the daily build needs nothing but the stdlib to
+read it.
 """
+import base64
 import gzip
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -33,9 +41,26 @@ PAGE = os.environ.get("NOISE_PAGE") or (
     "miljoegis-data-om-natur-og-miljoe-paa-webkort/hent-data-udstillet-paa-miljoegis")
 # set NOISE_URL to skip the page scrape and go straight at a known archive
 DIRECT = os.environ.get("NOISE_URL", "").strip()
+# NOISE_PROBE=1 stops after reporting the chosen URL and its size — seconds, not
+# an hour, when all you need to know is what the job is about to pull
+PROBE = os.environ.get("NOISE_PROBE", "").strip() not in ("", "0", "false")
+# NOISE_LAYER pins which layers to use, by comma-separated filename substrings
+LAYER = os.environ.get("NOISE_LAYER", "").strip()
+# the 1.1 GB archive survives between runs here, so a retry costs a minute
+CACHE = os.environ.get("NOISE_CACHE", "/tmp/noise-cache/noise.zip")
+
 # corridor: Koebenhavn -> Hilleroed / Frederikssund / the coast (Region Hovedstaden)
 W, S, E, N = 12.05, 55.58, 12.70, 55.96
+RES_M = 20.0                       # grid resolution in metres
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "noise.json")
+
+# Danish road layers at 1.5 m facade height, daytime Lden. The archive also holds
+# the EU reporting variants at 4 m, the "_nat" night maps, and rail / airport /
+# industry — none of which is what a buyer means by road noise outside the house.
+# Roads inside agglomerations and major roads outside them live in separate
+# layers, so take them all and keep the loudest reading at each point.
+ROAD_DAY = ["dk_2022_vej_1_5m", "dk_2022_stoerre_veje_1_5m", "dk_2022_sogb_veje_1_5m"]
+VEC_EXT = (".tab", ".shp", ".gpkg", ".mif")
 
 
 def fetch(url, referer=None):
@@ -50,9 +75,68 @@ def fetch(url, referer=None):
         return raw
 
 
+def head(url, referer=None):
+    """Size + type without pulling the body, so a huge archive is a known cost
+    rather than a job that silently sits there for an hour."""
+    h = dict(HDRS)
+    if referer:
+        h["Referer"] = referer
+    req = urllib.request.Request(url, headers=h, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, r.headers.get("Content-Length"), r.headers.get("Content-Type")
+    except Exception as ex:
+        return None, None, f"HEAD failed: {ex}"
+
+
+def download(url, dest, referer=None):
+    """Streamed, with progress — a 45-minute silent read tells you nothing about
+    whether it is slow or wedged."""
+    h = dict(HDRS)
+    if referer:
+        h["Referer"] = referer
+    req = urllib.request.Request(url, headers=h)
+    got, step = 0, 100 * 1024 * 1024
+    nxt = step
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    part = dest + ".part"
+    with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as fh:
+        total = r.headers.get("Content-Length")
+        total = int(total) if total and total.isdigit() else None
+        while True:
+            chunk = r.read(1024 * 1024)
+            if not chunk:
+                break
+            fh.write(chunk)
+            got += len(chunk)
+            if got >= nxt:
+                pct = f" ({got*100//total}%)" if total else ""
+                print(f"   … {got/1e6:.0f} MB{pct}", flush=True)
+                nxt += step
+    os.replace(part, dest)         # only a complete file becomes the cache entry
+    return got
+
+
+def band_db(category):
+    """'Lden5559' -> 57, 'Lden75' -> 77. The mapping publishes 5 dB bands; the
+    midpoint is the honest single number, and the open-ended top band is treated
+    as one more 5 dB step rather than pretending to know how loud it gets."""
+    nums = re.findall(r"\d+", str(category or ""))
+    if not nums:
+        return None
+    d = "".join(nums)
+    if len(d) >= 4:
+        lo, hi = int(d[:2]), int(d[2:4])
+        return int(round((lo + hi) / 2))
+    if len(d) == 2:
+        return int(d) + 2
+    return None
+
+
+# ---------------------------------------------------------------- 1) locate
 if DIRECT:
     url = DIRECT
-    print(f"1) NOISE_URL given, skipping the page scrape", flush=True)
+    print("1) NOISE_URL given, skipping the page scrape", flush=True)
 else:
     print("1) reading the download page…", flush=True)
     try:
@@ -60,104 +144,199 @@ else:
     except Exception as ex:
         sys.exit(f"could not read the page: {ex}")
 
-    links = re.findall(r'href=["\']([^"\']+)["\']', html)
-    links = [urllib.parse.urljoin(PAGE, l) for l in links]
+    links = [urllib.parse.urljoin(PAGE, l) for l in re.findall(r'href=["\']([^"\']+)["\']', html)]
     cand = [l for l in links if re.search(r"(noise|stoej|støj)", l, re.I)]
-    print(f"   {len(links)} links, {len(cand)} noise-ish:")
-    for l in sorted(set(cand))[:60]:
-        print("     ", l)
+    print(f"   {len(links)} links, {len(cand)} noise-ish")
 
-    # prefer 2022 road/vej TAB archives
     def score(u):
         s = 0
         if "2022" in u: s += 4
-        if re.search(r"vej|road", u, re.I): s += 3
         if re.search(r"tab", u, re.I): s += 2
         if u.lower().endswith(".zip"): s += 2
-        if re.search(r"bane|jernbane|rail", u, re.I): s -= 2
-        if re.search(r"fly|air|industri", u, re.I): s -= 2
         return s
 
     best = sorted(set(cand), key=score, reverse=True)
     if not best or score(best[0]) < 4:
         print("\n   No obvious noise-2022 download link found on the page.")
-        print("   All links containing 'download'/'.zip':")
         for l in sorted({l for l in links if re.search(r"download|\.zip", l, re.I)})[:80]:
             print("     ", l)
         sys.exit("stopping: need the exact download URL")
+    for l in best[:6]:
+        print(f"     {score(l):>3}  {l}")
     url = best[0]
 
-print(f"\n2) downloading {url}", flush=True)
-data = fetch(url, referer=PAGE)
-print(f"   {len(data)/1e6:.1f} MB", flush=True)
-zp = "/tmp/noise.zip"
-open(zp, "wb").write(data)
+print(f"\n2) target: {url}", flush=True)
+st, clen, ctype = head(url, referer=PAGE)
+want = int(clen) if clen and clen.isdigit() else None
+print(f"   HEAD {st} · {(want/1e6):.1f} MB · {ctype}" if want else f"   HEAD {st} · ? · {ctype}",
+      flush=True)
+if PROBE:
+    sys.exit(0)
 
-print("3) unpacking…", flush=True)
-os.makedirs("/tmp/noise", exist_ok=True)
+if os.path.exists(CACHE) and (want is None or abs(os.path.getsize(CACHE) - want) < 1024):
+    print(f"   cache hit: {CACHE} ({os.path.getsize(CACHE)/1e6:.1f} MB) — not re-downloading",
+          flush=True)
+else:
+    got = download(url, CACHE, referer=PAGE)
+    print(f"   downloaded {got/1e6:.1f} MB", flush=True)
+
+# ---------------------------------------------------------------- 3) index
+print("\n3) reading the archive index…", flush=True)
 try:
-    with zipfile.ZipFile(zp) as z:
-        z.extractall("/tmp/noise")
-        names = z.namelist()
+    z = zipfile.ZipFile(CACHE)
 except Exception as ex:
     sys.exit(f"not a zip we can read: {ex}")
-print("   entries:", names[:15], "…" if len(names) > 15 else "")
+infos = [i for i in z.infolist() if not i.is_dir()]
+vecs = [i for i in infos if i.filename.lower().endswith(VEC_EXT)]
+if not vecs:
+    sys.exit(f"no {'/'.join(VEC_EXT)} in the archive ({len(infos)} entries)")
+print(f"   {len(infos)} entries, {len(vecs)} vector layers:")
+for i in sorted(vecs, key=lambda i: i.filename):
+    print(f"     {i.file_size/1e6:8.1f} MB  {i.filename}")
 
-found = []
-for root, _dirs, files in os.walk("/tmp/noise"):
-    for f in files:
-        if f.lower().endswith((".tab", ".shp", ".gpkg", ".mif")):
-            found.append(os.path.join(root, f))
-if not found:
-    sys.exit("no .tab/.shp/.gpkg found in the archive")
-print("   vector files:", [os.path.basename(f) for f in found][:20])
-# several layers may ship together (day / night / rail) — take the road Lden one
-def pick(p):
-    b = os.path.basename(p).lower()
-    s = os.path.getsize(p) / 1e6
-    return (3 if re.search(r"vej|road", b) else 0) + (2 if "lden" in b else 0) \
-        - (3 if re.search(r"nat|night|bane|rail|fly|air", b) else 0) + min(s / 100, 1)
-src = sorted(found, key=pick, reverse=True)[0]
-print("   using:", src, flush=True)
+wanted = [s.strip().lower() for s in LAYER.split(",") if s.strip()] if LAYER else ROAD_DAY
+chosen = []
+for w in wanted:
+    hit = [i for i in vecs if w in i.filename.lower()]
+    if not hit:
+        print(f"   !! no layer matches {w!r}", file=sys.stderr)
+        continue
+    chosen.append(sorted(hit, key=lambda i: i.file_size, reverse=True)[0])
+if not chosen:
+    sys.exit(f"none of {wanted} matched any of the {len(vecs)} layers")
+print("   using:", [os.path.basename(i.filename) for i in chosen], flush=True)
 
-print("4) inspecting layer…", flush=True)
-print(subprocess.run(["ogrinfo", "-so", "-al", src], capture_output=True, text=True).stdout[:1800])
+# Extract only those layers and their sidecars. MapInfo TAB splits one layer over
+# several files sharing a stem, and the whole archive unpacked is many GB.
+os.makedirs("/tmp/noise", exist_ok=True)
+srcs = []
+for c in chosen:
+    stem = os.path.splitext(c.filename)[0]
+    for i in [m for m in infos if os.path.splitext(m.filename)[0] == stem]:
+        z.extract(i, "/tmp/noise")
+    srcs.append(os.path.join("/tmp/noise", c.filename))
 
-print("5) clipping to the corridor + reprojecting to WGS84…", flush=True)
-tmp = "/tmp/noise_clip.json"
-if os.path.exists(tmp):
-    os.remove(tmp)
-r = subprocess.run([
-    "ogr2ogr", "-f", "GeoJSON", tmp, src,
-    "-t_srs", "EPSG:4326",
-    "-clipdst", str(W), str(S), str(E), str(N),
-    "-simplify", "0.00005",
-    "-nlt", "PROMOTE_TO_MULTI",
-], capture_output=True, text=True)
-if r.returncode != 0:
-    print(r.stdout[-1500:]); sys.exit("ogr2ogr failed: " + r.stderr[-1500:])
+# ---------------------------------------------------------------- 4) clip
+from osgeo import gdal, ogr, osr                               # noqa: E402
+gdal.UseExceptions()
+ogr.UseExceptions()
 
-gj = json.load(open(tmp, encoding="utf-8"))
-feats = gj.get("features", [])
-print(f"   {len(feats)} features after clipping")
-if feats:
-    print("   attributes:", json.dumps(feats[0].get("properties", {}), ensure_ascii=False)[:400])
+print("\n4) clipping each layer to the corridor…", flush=True)
+clipped = []
+for src in srcs:
+    dst = f"/tmp/{os.path.splitext(os.path.basename(src))[0]}_clip.gpkg"
+    if os.path.exists(dst):
+        os.remove(dst)
+    r = subprocess.run([
+        "ogr2ogr", "-f", "GPKG", dst, src,
+        "-t_srs", "EPSG:4326",
+        "-clipdst", str(W), str(S), str(E), str(N),
+        "-nlt", "PROMOTE_TO_MULTI",
+        "-nln", "noise",
+    ], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"   !! ogr2ogr failed on {os.path.basename(src)}: {r.stderr[-600:]}", file=sys.stderr)
+        continue
+    ds = ogr.Open(dst, 1)
+    lyr = ds.GetLayer(0)
+    n = lyr.GetFeatureCount()
+    if not n:
+        print(f"   {os.path.basename(src)}: 0 features in the corridor — skipping")
+        ds = None
+        continue
 
-# keep only the geometry + the dB band attribute, rounded, to stay small
-out = {"type": "FeatureCollection", "features": []}
-for f in feats:
-    p = f.get("properties") or {}
-    db = None
-    for k, v in p.items():
-        if re.search(r"lden|db|niveau|klasse|interval|value", str(k), re.I) and v not in (None, ""):
-            db = v
-            break
-    out["features"].append({"type": "Feature", "properties": {"db": db}, "geometry": f.get("geometry")})
+    fields = [lyr.GetLayerDefn().GetFieldDefn(i).GetName()
+              for i in range(lyr.GetLayerDefn().GetFieldCount())]
+    cat = next((f for f in fields if f.lower() == "category"), None)
+    if not cat:
+        cat = next((f for f in fields if re.search(r"lden|categor|klasse|niveau", f, re.I)), None)
+    if not cat:
+        print(f"   !! {os.path.basename(src)}: no category field in {fields}", file=sys.stderr)
+        ds = None
+        continue
 
+    # turn the band label into a number GDAL can burn
+    lyr.CreateField(ogr.FieldDefn("db", ogr.OFTInteger))
+    seen, bad = {}, 0
+    lyr.ResetReading()
+    for feat in lyr:
+        v = band_db(feat.GetField(cat))
+        if v is None:
+            bad += 1
+            continue
+        feat.SetField("db", v)
+        lyr.SetFeature(feat)
+        seen[v] = seen.get(v, 0) + 1
+    ds = None
+    bands = {k: seen[k] for k in sorted(seen)}
+    print(f"   {os.path.basename(src)}: {n} features · bands {bands}"
+          + (f" · {bad} unparsed" if bad else ""), flush=True)
+    if seen:
+        clipped.append(dst)
+
+if not clipped:
+    sys.exit("no clipped layer carried a usable dB band — cannot build the grid")
+
+# ---------------------------------------------------------------- 5) rasterise
+clat = math.cos(math.radians((S + N) / 2))
+cols = int(round((E - W) * 111320.0 * clat / RES_M))
+rows = int(round((N - S) * 110540.0 / RES_M))
+print(f"\n5) rasterising to {cols}×{rows} at ~{RES_M:.0f} m…", flush=True)
+
+mem = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Byte)
+mem.SetGeoTransform((W, (E - W) / cols, 0, N, 0, -(N - S) / rows))
+srs = osr.SpatialReference()
+srs.ImportFromEPSG(4326)
+mem.SetProjection(srs.ExportToWkt())
+mem.GetRasterBand(1).Fill(0)
+
+# Bands nest: the 70 dB contour sits inside the 55 dB one. Burning in ascending
+# order leaves the loudest value on top, which is the reading you actually want.
+levels = set()
+for path in clipped:
+    ds = ogr.Open(path)
+    lyr = ds.GetLayer(0)
+    lyr.ResetReading()
+    for feat in lyr:
+        v = feat.GetField("db")
+        if v:
+            levels.add(int(v))
+    ds = None
+for v in sorted(levels):
+    for path in clipped:
+        gdal.Rasterize(mem, path, options=gdal.RasterizeOptions(
+            bands=[1], burnValues=[v], where=f"db = {v}", allTouched=True))
+    print(f"   burned {v} dB", flush=True)
+
+grid = mem.GetRasterBand(1).ReadAsArray().tobytes()
+mem = None
+
+hist = {}
+for b in grid:
+    if b:
+        hist[b] = hist.get(b, 0) + 1
+covered = sum(hist.values())
+print(f"   {covered*100.0/len(grid):.1f}% of the grid has a reading; "
+      f"cells per band { {k: hist[k] for k in sorted(hist)} }")
+if not covered:
+    sys.exit("the grid came out empty — nothing burned")
+
+# ---------------------------------------------------------------- 6) write
+blob = base64.b64encode(gzip.compress(grid, 9)).decode("ascii")
+out = {
+    "source": "Miljøstyrelsen / MiljøGIS — EU-støjkortlægning 2022, vejstøj Lden 1,5 m",
+    "url": url,
+    "layers": [os.path.basename(p) for p in clipped],
+    "bbox": [W, S, E, N],
+    "cols": cols, "rows": rows, "resM": RES_M,
+    "note": "db = 0 means no mapped band (quieter than the 55 dB Lden floor)",
+    "enc": "gzip+base64",
+    "data": blob,
+}
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, "w", encoding="utf-8") as fh:
     json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
 mb = os.path.getsize(OUT) / 1e6
-print(f"6) wrote data/noise.json — {len(out['features'])} features, {mb:.1f} MB")
+print(f"\n6) wrote data/noise.json — {cols}×{rows} grid, {mb:.2f} MB", flush=True)
 if mb > 45:
-    print("   WARNING: large for a git repo; consider a coarser -simplify")
+    sys.exit("refusing to commit: grid is too large, raise RES_M")
