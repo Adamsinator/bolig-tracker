@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Probe v3. The user found the MiljoeGIS tilecache (WMTS). WMTS only serves
-images, but its GetCapabilities names the layers — and the layer name is what we
-need to find the matching *vector* (WFS) service. Throwaway."""
+"""Probe v4. v3 found the real layer names (theme-dk_noise2022_*). Now: list them
+all, find the WMS servicename that serves them, and test GetFeatureInfo — which
+returns the dB value at a coordinate. Throwaway."""
 import re
 import urllib.request
 
 UA = {"User-Agent": "bolig-tracker/1.0 (+https://boligtracker.dk)"}
+# a point right beside the Helsingoermotorvejen, where noise must be high
+TEST = (55.7570, 12.5140)
 
 
-def get(url, cap=3000000):
+def get(url, cap=4000000):
     try:
         req = urllib.request.Request(url, headers=UA)
         with urllib.request.urlopen(req, timeout=90) as r:
@@ -17,46 +19,54 @@ def get(url, cap=3000000):
         return f"__ERR__ {ex}"
 
 
-print("### 1) WMTS tilecache capabilities — layer names ###", flush=True)
+print("### 1) ALL noise layers in the tilecache ###", flush=True)
 b = get("https://tilecache2-miljoegis.mim.dk/gwc/service/wmts?REQUEST=getcapabilities")
-noise_layers = []
-if b.startswith("__ERR__"):
-    print("   ", b[:300])
-else:
-    print("    bytes:", len(b))
+layers = []
+if not b.startswith("__ERR__"):
     ids = re.findall(r"<ows:Identifier>([^<]+)</ows:Identifier>", b)
-    print("    total identifiers:", len(ids))
-    noise_layers = sorted({i for i in ids if re.search(r"stoj|støj|noise|lden|ldn|vejstoj", i, re.I)})
-    print("    NOISE-ish layers:", noise_layers[:40])
-    if not noise_layers:
-        print("    sample identifiers:", ids[:40])
+    layers = sorted({i for i in ids if re.search(r"noise|stoj|støj", i, re.I)})
+    for l in layers:
+        print("   ", l)
+    print("    total noise layers:", len(layers))
+else:
+    print("   ", b[:200])
 
-print("\n### 2) try the same names as WFS/WMS on the miljoegis hosts ###", flush=True)
-cands = noise_layers[:6] or ["stoej", "stoejkortlaegning"]
-seen = set()
-for lyr in cands:
-    # a GeoServer-backed tilecache usually fronts a workspace:layer name
-    ws = lyr.split(":")[0] if ":" in lyr else None
-    for base in [
-        "https://wfs2-miljoegis.mim.dk/{}/ows".format(ws or lyr),
-        "https://miljoegis.mim.dk/wfs?servicename=miljoegis-{}_wfs".format(ws or lyr),
-    ]:
-        u = base + ("&" if "?" in base else "?") + "service=WFS&version=2.0.0&request=GetCapabilities"
-        if u in seen:
-            continue
-        seen.add(u)
-        r = get(u, 400000)
-        if r.startswith("__ERR__"):
-            print(f"    {u[:95]} -> {r[:60]}")
-            continue
-        names = re.findall(r"<Name>([^<]+)</Name>", r)
-        hits = [n for n in names if re.search(r"stoj|støj|noise|lden", n, re.I)]
-        print(f"    {u[:95]} -> {len(names)} featuretypes, noise: {hits[:15]}")
+# road-traffic layers are the ones we actually want (vej), not railway (bane)
+road = [l for l in layers if re.search(r"vej|road", l, re.I)] or layers
+print("\n    road-ish candidates:", road[:8])
 
-print("\n### 3) if a noise featuretype exists, pull one feature to see attributes ###", flush=True)
-for lyr in noise_layers[:3]:
-    ws = lyr.split(":")[0] if ":" in lyr else lyr
-    u = (f"https://wfs2-miljoegis.mim.dk/{ws}/ows?service=WFS&version=2.0.0&request=GetFeature"
-         f"&typeNames={lyr}&count=1&outputFormat=application/json&srsName=EPSG:4326")
-    r = get(u, 60000)
-    print(f"    {lyr}: ", (r[:400] if not r.startswith("__ERR__") else r[:140]))
+print("\n### 2) find a WMS servicename that serves these layers ###", flush=True)
+SERVICES = [
+    "miljoegis-noise_wms", "miljoegis-noise2022_wms", "miljoegis-dk_noise2022_wms",
+    "miljoegis-stoej2022_wms", "miljoegis-stoejkort_wms", "miljoegis-eustoej_wms",
+]
+working = []
+for s in SERVICES:
+    u = f"https://miljoegis.mim.dk/wms?servicename={s}&service=wms&request=GetCapabilities"
+    r = get(u, 900000)
+    if r.startswith("__ERR__"):
+        print(f"    {s:32} -> {r[:50]}")
+        continue
+    names = re.findall(r"<Name>([^<]+)</Name>", r)
+    hits = [n for n in names if re.search(r"noise|stoj", n, re.I)]
+    print(f"    {s:32} -> {len(names)} layers, noise: {len(hits)} {hits[:4]}")
+    if hits:
+        working.append((s, hits))
+
+print("\n### 3) GetFeatureInfo — can we read a dB value at a point? ###", flush=True)
+lat, lon = TEST
+d = 0.002
+bbox = f"{lon-d},{lat-d},{lon+d},{lat+d}"
+targets = [(s, l) for s, hits in working for l in hits[:2]]
+if not targets and road:
+    targets = [("miljoegis-mst_wms", road[0])]
+for s, lyr in targets[:6]:
+    for fmt in ("application/json", "text/plain"):
+        u = (f"https://miljoegis.mim.dk/wms?servicename={s}&service=WMS&version=1.3.0"
+             f"&request=GetFeatureInfo&layers={lyr}&query_layers={lyr}"
+             f"&crs=EPSG:4326&bbox={lat-d},{lon-d},{lat+d},{lon+d}"
+             f"&width=101&height=101&i=50&j=50&info_format={fmt}")
+        r = get(u, 6000)
+        print(f"    [{fmt}] {lyr[:44]} -> {r[:220] if not r.startswith('__ERR__') else r[:90]}")
+        if not r.startswith("__ERR__") and len(r) > 40:
+            break
