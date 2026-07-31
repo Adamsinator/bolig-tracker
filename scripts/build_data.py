@@ -15,6 +15,7 @@ import math
 import os
 import re
 import signal
+import statistics
 import sys
 import time
 import urllib.parse
@@ -1112,6 +1113,30 @@ SOLD_MONTHS = 24
 SOLD_RECENT_DAYS = 365                     # headline median = last 12 months
 MAX_SOLD_PAGES = 25                        # hard cap per kommune × type
 
+_LOT_KEYS = ("lotSize", "LotSize", "lotArea", "LotArea", "groundSize", "GroundSize",
+             "plotSize", "PlotSize", "grundareal", "Grundareal")
+_lot_seen = [0, 0]                # [records with a lot, records without]
+
+
+def _sold_lot(s):
+    """Lot area off a Boliga sold record. The field name isn't documented and
+    isn't in every payload, so try the plausible spellings and count how often
+    we actually get one — a comps match on lot is only worth doing if the data
+    is really there."""
+    for k in _LOT_KEYS:
+        v = s.get(k)
+        if v:
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                continue
+            if 10 <= v <= 100000:
+                _lot_seen[0] += 1
+                return int(v)
+    _lot_seen[1] += 1
+    return None
+
+
 def _boliga_sold_page(code, ptype, date_min, page):
     qs = urllib.parse.urlencode({
         "municipality": code, "propertyType": ptype, "salesDateMin": date_min,
@@ -1211,11 +1236,12 @@ def fetch_sold(listings):
                         la = s.get("latitude") or s.get("Latitude")
                         lo = s.get("longitude") or s.get("Longitude")
                         if la and lo:
-                            # carry quarter/size/year so comps can be time-adjusted
+                            # carry quarter/size/year/lot so comps can be time-adjusted
                             # and matched on similarity, not just location + type
                             points.append((round(la, 5), round(lo, 5), m2, t, q,
                                            sz if sz and sz > 0 else None,
-                                           int(yr) if yr and 1800 < yr <= now.year else None))
+                                           int(yr) if yr and 1800 < yr <= now.year else None,
+                                           _sold_lot(s)))
                 if d and d < cutoff:
                     stop = True
             rows_seen += len(results)
@@ -1304,6 +1330,7 @@ COMP_MIN = 6                     # fewer than this and we don't claim a benchmar
 COMP_K = 25                      # use the nearest K matched sales
 COMP_AREA_TOL = 0.30             # ±30 % living area
 COMP_YEAR_TOL = 20               # ±20 years build year
+COMP_LOT_TOL = 0.40              # ±40 % lot area when matching houses
 COMP_HALF = 500.0                # metres — distance at which a comp's weight halves
 
 
@@ -1321,25 +1348,58 @@ def _weighted_median(pairs):
     return pairs[-1][0]
 
 
-def _time_factors(series_all):
-    """Multiplier that lifts a quarter's kr/m² onto today's level, per type,
-    from the corridor's own pooled quarterly medians."""
+COMP_CHAIN_MIN = 6               # kommuner that must span a quarter step to trust it
+
+
+def _time_factors(series_all, series_by_muni=None):
+    """Multiplier that lifts a quarter's kr/m² onto today's level, per type.
+
+    Chained on the kommuner present in *both* quarters of each step, rather than
+    read off the corridor-pooled median. The pooled median moves whenever the mix
+    of kommuner reporting changes, and the oldest quarter is systematically thin
+    because MAX_SOLD_PAGES truncates the highest-volume kommuner first — sorted
+    newest-first, so it is always the oldest quarter that loses them. In one
+    build that dropped København out of the oldest condo quarter entirely and
+    turned a real +22 % into an apparent +66 %, which then inflated every
+    older comp and made listings look far cheaper than they were.
+
+    Falls back to the pooled series when there aren't enough overlapping
+    kommuner to chain."""
     factors = {}
     for t, qm in (series_all or {}).items():
         if not qm:
             continue
-        latest = max(qm)
-        base = qm.get(latest)
-        if not base:
+        qs = sorted(qm)
+        level, chained = {qs[0]: 1.0}, True
+        for a, b in zip(qs, qs[1:]):
+            ratios = []
+            for m in (series_by_muni or {}).values():
+                s = (m.get(t) or {})
+                if s.get(a) and s.get(b):
+                    ratios.append(s[b] / s[a])
+            if len(ratios) < COMP_CHAIN_MIN:
+                chained = False
+                break
+            level[b] = level[a] * statistics.median(ratios)
+        if not chained:
+            latest = max(qm)
+            if qm.get(latest):
+                factors[t] = {q: qm[latest] / v for q, v in qm.items() if v}
+                print(f"    comps: {t} time index falls back to pooled medians "
+                      f"(too few kommuner span every quarter)", file=sys.stderr)
             continue
-        factors[t] = {q: base / v for q, v in qm.items() if v}
+        base = level[qs[-1]]
+        factors[t] = {q: base / v for q, v in level.items() if v}
+        pooled = qm[qs[-1]] / qm[qs[0]] if qm.get(qs[0]) else None
+        print(f"    comps: {t} index {qs[0]}→{qs[-1]} {(base/level[qs[0]]-1)*100:+.1f} %"
+              + (f" (pooled medians would say {(pooled-1)*100:+.1f} %)" if pooled else ""))
     return factors
 
 
-def annotate_comps(listings, points, series_all=None):
+def annotate_comps(listings, points, series_all=None, series_by_muni=None):
     if not points:
         return 0
-    factors = _time_factors(series_all)
+    factors = _time_factors(series_all, series_by_muni)
     if factors:
         print(f"    comps: time-adjusting via corridor quarterly medians "
               f"({', '.join(f'{t}:{len(f)}q' for t, f in factors.items())})")
@@ -1347,6 +1407,7 @@ def annotate_comps(listings, points, series_all=None):
     for p in points:
         grid.setdefault((int(p[0] / COMP_CELL), int(p[1] / COMP_CELL)), []).append(p)
     done = adjusted = 0
+    lot_matched = [0]
     for r in listings:
         la, lo, t = r.get("lat"), r.get("lon"), r.get("t")
         if la is None or lo is None:
@@ -1363,18 +1424,29 @@ def annotate_comps(listings, points, series_all=None):
                     if d > COMP_MAX_R:
                         continue
                     q, sz, yr = (p[4], p[5], p[6]) if len(p) > 6 else (None, None, None)
-                    cand.append((d, p[2] * ftab.get(q, 1.0), sz, yr))
+                    plot = p[7] if len(p) > 7 else None
+                    cand.append((d, p[2] * ftab.get(q, 1.0), sz, yr, plot))
         if not cand:
             continue
         # prefer sales of a similar size and age; fall back to all nearby sales
         # of the same type when that leaves too few to be meaningful
-        a, y = r.get("a"), r.get("y")
+        a, y, lot = r.get("a"), r.get("y"), r.get("lot")
         near = cand
         if a:
             lo_a, hi_a = a * (1 - COMP_AREA_TOL), a * (1 + COMP_AREA_TOL)
             sim = [c for c in cand
                    if c[2] and lo_a <= c[2] <= hi_a
                    and (not y or not c[3] or abs(c[3] - y) <= COMP_YEAR_TOL)]
+            # For a house the plot is a big part of the price, so narrow further
+            # on lot size when both sides have it — but only if enough comps
+            # survive, otherwise a matched-on-everything sample of three is worse
+            # than a looser sample of fifteen.
+            if t == "villa" and lot:
+                lo_l, hi_l = lot * (1 - COMP_LOT_TOL), lot * (1 + COMP_LOT_TOL)
+                tight = [c for c in sim if c[4] and lo_l <= c[4] <= hi_l]
+                if len(tight) >= COMP_MIN:
+                    sim = tight
+                    lot_matched[0] += 1
             if len(sim) >= COMP_MIN:
                 near = sim
                 adjusted += 1
@@ -1393,7 +1465,12 @@ def annotate_comps(listings, points, series_all=None):
         r["cmpR"] = int(near[-1][0])          # how far the farthest used comp sits
         r["cmpS"] = round((q3 - q1) / m2 * 100)   # spread as % of the benchmark
         done += 1
-    print(f"    comps: {adjusted}/{done} used size/age-matched sales")
+    print(f"    comps: {adjusted}/{done} used size/age-matched sales"
+          f" · {lot_matched[0]} of those also matched on lot size")
+    if _lot_seen[0] or _lot_seen[1]:
+        tot = _lot_seen[0] + _lot_seen[1]
+        print(f"    comps: boliga gave a lot size on {_lot_seen[0]}/{tot} sold records"
+              f" ({_lot_seen[0]*100//max(tot,1)} %)")
     return done
 
 
@@ -1675,7 +1752,8 @@ def main():
     print("Fetching realised sold prices (Boliga / tinglysning)…")
     sold = fetch_sold(listings)
     if sold:
-        n_comp = annotate_comps(listings, sold.pop("points", []), sold.get("seriesAll"))
+        n_comp = annotate_comps(listings, sold.pop("points", []),
+                                sold.get("seriesAll"), sold.get("series"))
         print(f"  comps: {n_comp}/{len(listings)} listings got a local realised benchmark")
 
     with open(os.path.join(data_dir, "listings.json"), "w", encoding="utf-8") as f:
