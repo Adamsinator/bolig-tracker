@@ -1705,6 +1705,14 @@ function card(r) {
     if (r.poi.day != null) pp.push('🧸 ' + fmtM(r.poi.day));
     if (pp.length) meta.append(el('span', { class: 'poi-dist', title: 'Afstand til nærmeste indkøb · skole · daginstitution' }, pp.join(' · ')));
   }
+  // The mapping is in 5 dB bands and r.db is the band midpoint, so the lowest
+  // band (55–59) straddles the 58 dB vejledende grænseværdi. Flag from 60 up,
+  // where the band as a whole is above the limit — no false alarms.
+  if (r.db >= 60) meta.append(el('span', {
+    class: 'noise-db',
+    title: 'Beregnet vejstøj på facaden (Lden), midt i et 5 dB-interval fra Miljøstyrelsens '
+         + 'støjkortlægning. Vejledende grænseværdi for boliger er 58 dB.',
+  }, `🔊 ~${r.db} dB`));
   if (S.A || S.B) {
     const parts = [];
     if (S.A) parts.push('🏠 ' + haversine(r.lat, r.lon, S.A.lat, S.A.lon).toLocaleString('da-DK', { maximumFractionDigits: 1 }) + ' km');

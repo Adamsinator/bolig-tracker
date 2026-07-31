@@ -7,7 +7,9 @@ and write two compact files consumed by the static site:
 
 No API key, no auth. Dependency-free (stdlib only) so it runs locally and in CI.
 """
+import base64
 import contextlib
+import gzip
 import json
 import math
 import os
@@ -1535,6 +1537,53 @@ def annotate_poi_distance(listings, pois):
     print(f"  poi distances: annotated {n}/{len(listings)} listings")
 
 
+# Miljøstyrelsen maps road noise in 5 dB bands from 55 dB Lden upward. Anything
+# outside every band is quieter than the lowest mapped one; 50 is a reasonable
+# stand-in so "not in a band" doesn't read as "no data".
+NOISE_FLOOR_DB = 50
+
+
+def annotate_noise(listings, noise):
+    """Add r['db'] — road-traffic noise (Lden, façade level) from Miljøstyrelsen's
+    2022 EU noise mapping, in dB.
+
+    data/noise.json holds a gzipped byte grid built once by fetch_noise_once.py:
+    one dB reading per ~20 m cell, so this is a straight index rather than a
+    point-in-polygon search. A 0 cell means no mapped band, i.e. quieter than the
+    55 dB floor the mapping starts at — that becomes NOISE_FLOOR_DB. Fail-soft:
+    no grid → no-op, and the model treats a missing r['db'] as "unknown" rather
+    than "quiet"."""
+    if not noise or not noise.get("data"):
+        return
+    try:
+        grid = gzip.decompress(base64.b64decode(noise["data"]))
+    except Exception as ex:
+        print(f"  noise: could not decode the grid ({ex})", file=sys.stderr)
+        return
+    cols, rows = int(noise["cols"]), int(noise["rows"])
+    if len(grid) != cols * rows:
+        print(f"  noise: grid is {len(grid)} bytes, expected {cols*rows} — skipping",
+              file=sys.stderr)
+        return
+    w, s, e, n_ = (float(v) for v in noise["bbox"])
+
+    hit = 0
+    for r in listings:
+        lat, lon = r.get("lat"), r.get("lon")
+        if lat is None or lon is None:
+            continue
+        if not (w <= lon <= e and s <= lat <= n_):
+            continue                     # outside the mapped corridor: leave unknown
+        col = min(cols - 1, int((lon - w) / (e - w) * cols))
+        row = min(rows - 1, int((n_ - lat) / (n_ - s) * rows))
+        v = grid[row * cols + col]
+        r["db"] = int(v) if v else NOISE_FLOOR_DB
+        hit += 1
+    loud = sum(1 for r in listings if (r.get("db") or 0) >= 58)
+    print(f"  noise: {cols}×{rows} grid, annotated {hit}/{len(listings)} listings "
+          f"({loud} at 58 dB or above)")
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(here, "..", "data")
@@ -1608,6 +1657,17 @@ def main():
 
     print("Fetching location features — motorway / water / nature (issue #8)…")
     annotate_geo_distance(listings, fetch_geo_features())
+
+    # Road-traffic noise: a static layer fetched once by scripts/fetch_noise_once.py
+    # (EU noise mapping is redone every ~5 years), so just read it off disk.
+    noise_path = os.path.join(data_dir, "noise.json")
+    if os.path.exists(noise_path):
+        print("Matching addresses against the 2022 road-noise map…")
+        try:
+            with open(noise_path, encoding="utf-8") as f:
+                annotate_noise(listings, json.load(f))
+        except Exception as ex:
+            print(f"  noise annotation failed ({ex})", file=sys.stderr)
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
