@@ -1,94 +1,128 @@
 #!/usr/bin/env python3
-"""Temporary probe #4: does DATAFORDELER_USERID + the API key unlock anything?
+"""Temporary probe #5: Datafordeler GraphQL, with the documented shape.
 
-Probe #3 found the GraphQL host — graphql.datafordeler.dk answers 401, not 404 —
-but no single-value key placement was accepted. Datafordeler's API keys belong
-to an IT-system, so an ID/key *pair* is the obvious missing half. This tries the
-pair across both GraphQL and REST, in the shapes such APIs usually take.
+Earlier probes had the host right and everything else wrong: the key parameter
+is `apiKey` (camelCase) and the path carries the register and version, e.g.
+    https://graphql.datafordeler.dk/BBR/v3?apiKey=...
+    https://graphql.datafordeler.dk/BBR/v3/schema?apiKey=...
+
+Queries are bitemporal — registreringstid and virkningstid are required — and
+paginate with first/after against pageInfo.endCursor until hasNextPage is false.
 
 Credentials never reach stdout; URLs are redacted before logging.
 """
-import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-UID = os.environ.get("DATAFORDELER_USERID", "").strip()
-APIK = os.environ.get("DATAFORDELER_API", "").strip()
-USER = os.environ.get("DATAFORDELER_USER", "").strip()
-PASS = os.environ.get("DATAFORDELER_PASS", "").strip()
-SECRETS = [s for s in (UID, APIK, USER, PASS) if s]
+KEY = os.environ.get("DATAFORDELER_API", "").strip()
+if not KEY:
+    sys.exit("no DATAFORDELER_API in the environment")
+SECRETS = [KEY] + [v for v in (os.environ.get("DATAFORDELER_USERID", ""),
+                               os.environ.get("DATAFORDELER_USER", ""),
+                               os.environ.get("DATAFORDELER_PASS", "")) if v.strip()]
 
 
 def redact(t):
     out = str(t)
     for s in SECRETS:
-        out = out.replace(s, "***").replace(urllib.parse.quote(s, safe=""), "***")
+        if s:
+            out = out.replace(s, "***").replace(urllib.parse.quote(s, safe=""), "***")
     return out
 
 
-print("secrets present:", f"userid={'yes' if UID else 'NO'}",
-      f"api={'yes' if APIK else 'NO'}", f"user={'yes' if USER else 'NO'}",
-      f"pass={'yes' if PASS else 'NO'}")
-if not (UID and APIK):
-    sys.exit("need DATAFORDELER_USERID and DATAFORDELER_API")
-print(f"userid length {len(UID)}, api key length {len(APIK)}")
-
+GQL = "https://graphql.datafordeler.dk"
+EK = urllib.parse.quote(KEY, safe="")
 UA = {"User-Agent": "bolig-tracker/1.0 (+https://boligtracker.dk)"}
-GQL = ["https://graphql.datafordeler.dk/", "https://api.datafordeler.dk/graphql"]
-BBR = "https://services.datafordeler.dk/BBR/BBRPublic/1/rest/bygning"
-INTRO = {"query": "{__schema{queryType{name}}}"}
-BBRQ = {"Kommunekode": "0223", "pagesize": "1"}
+# bitemporal "as of now" — both stamps are required
+NOW = "2026-07-31T12:00:00Z"
+KOMMUNE = "0223"          # Hørsholm, where Sofievej 11 sits
 
 
-def hit(label, url, payload=None, headers=None):
-    data = json.dumps(payload).encode() if payload is not None else None
-    h = {**UA, "Accept": "application/json", **(headers or {})}
-    if data:
-        h["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=h)
+def get(url, cap=4000):
+    req = urllib.request.Request(url, headers={**UA, "Accept": "*/*"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            body = r.read(600).decode("utf-8", "replace")
-            print(f"  {r.status:>3}  {label}   <-- WORKS")
-            print(f"        {redact(body)[:400]}")
-            return r.status
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, r.read(cap)
     except urllib.error.HTTPError as ex:
-        snippet = ""
         try:
-            snippet = redact(ex.read(160).decode("utf-8", "replace")).replace("\n", " ")
+            return ex.code, ex.read(300)
         except Exception:
-            pass
-        print(f"  {ex.code:>3}  {label}" + (f"   {snippet[:90]}" if snippet else ""))
-        return ex.code
+            return ex.code, b""
     except Exception as ex:
-        print(f"  ---  {label}  ({type(ex).__name__}: {redact(str(ex))[:60]})")
-        return None
+        return None, f"{type(ex).__name__}: {str(ex)[:70]}".encode()
 
 
-eu, ek = urllib.parse.quote(UID, safe=""), urllib.parse.quote(APIK, safe="")
-basic = base64.b64encode(f"{UID}:{APIK}".encode()).decode()
+def post(url, query, cap=4000):
+    data = json.dumps({"query": query}).encode()
+    req = urllib.request.Request(url, data=data, headers={
+        **UA, "Content-Type": "application/json", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, r.read(cap)
+    except urllib.error.HTTPError as ex:
+        try:
+            return ex.code, ex.read(500)
+        except Exception:
+            return ex.code, b""
+    except Exception as ex:
+        return None, f"{type(ex).__name__}: {str(ex)[:70]}".encode()
 
-print("\n=== GraphQL, id + key as a pair ===")
-for ep in GQL:
-    host = urllib.parse.urlparse(ep).netloc
-    hit(f"{host} ?username=&password=", f"{ep}?username={eu}&password={ek}", INTRO)
-    hit(f"{host} ?userid=&api_key=", f"{ep}?userid={eu}&api_key={ek}", INTRO)
-    hit(f"{host} ?client_id=&client_secret=", f"{ep}?client_id={eu}&client_secret={ek}", INTRO)
-    hit(f"{host} Basic id:key", ep, INTRO, {"Authorization": f"Basic {basic}"})
-    hit(f"{host} X-Client-Id + X-API-Key", ep, INTRO,
-        {"X-Client-Id": UID, "X-API-Key": APIK})
-    hit(f"{host} Bearer key + X-User-Id", ep, INTRO,
-        {"Authorization": f"Bearer {APIK}", "X-User-Id": UID})
 
-print("\n=== REST BBR, in case the pair works the old way ===")
-q = urllib.parse.urlencode(BBRQ)
-hit("BBR ?username=<userid>&password=<apikey>", f"{BBR}?{q}&username={eu}&password={ek}")
-hit("BBR ?username=<user>&password=<apikey>",
-    f"{BBR}?{q}&username={urllib.parse.quote(USER, safe='')}&password={ek}" if USER else BBR)
-hit("BBR Basic userid:apikey", f"{BBR}?{q}", None, {"Authorization": f"Basic {basic}"})
+print("=== schema endpoints ===")
+for reg in ("BBR", "DAR", "MATRIKLEN", "EJENDOMSVURDERING"):
+    code, body = get(f"{GQL}/{reg}/v3/schema?apiKey={EK}", 1500)
+    txt = redact(body.decode("utf-8", "replace"))
+    print(f"  {str(code):>4}  {reg}/v3/schema  ({len(body)} bytes read)")
+    if code == 200:
+        types = re.findall(r"type\s+(\w+)\s*\{", txt)
+        if types:
+            print(f"         types seen: {types[:8]}")
+    elif txt.strip():
+        print(f"         {txt[:150]}")
+
+print("\n=== BBR_Bygning query for Hørsholm ===")
+q = """query {
+  BBR_Bygning(
+    first: 3
+    registreringstid: "%s"
+    virkningstid: "%s"
+    where: { kommunekode: { eq: "%s" } }
+  ) {
+    pageInfo { endCursor hasNextPage }
+    nodes { kommunekode husnummer id_lokalId byg007Bygningsnummer grund }
+  }
+}""" % (NOW, NOW, KOMMUNE)
+code, body = post(f"{GQL}/BBR/v3?apiKey={EK}", q)
+print(f"  HTTP {code}")
+print(" ", redact(body.decode("utf-8", "replace"))[:1400])
+
+if code == 200:
+    try:
+        d = json.loads(body.decode("utf-8", "replace"))
+        nodes = (((d.get("data") or {}).get("BBR_Bygning") or {}).get("nodes")) or []
+        if nodes:
+            print(f"\n  -> {len(nodes)} building(s). First husnummer id:",
+                  redact(nodes[0].get("husnummer")))
+            hn = nodes[0].get("husnummer")
+            if hn:
+                print("\n=== join through to DAR_Husnummer ===")
+                q2 = """query {
+  DAR_Husnummer(
+    first: 1
+    registreringstid: "%s"
+    virkningstid: "%s"
+    where: { id_lokalId: { eq: "%s" } }
+  ) { nodes { id_lokalId husnummertekst } }
+}""" % (NOW, NOW, hn)
+                c2, b2 = post(f"{GQL}/DAR/v3?apiKey={EK}", q2)
+                print(f"  HTTP {c2}")
+                print(" ", redact(b2.decode("utf-8", "replace"))[:700])
+    except Exception as ex:
+        print("  could not parse:", redact(str(ex))[:120])
 
 print("\nDelete this script and its workflow once read.")
