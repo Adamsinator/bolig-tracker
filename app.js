@@ -749,7 +749,7 @@ function renderScatter(f) {
   svg.append(gDots);
   gDots.addEventListener('mousemove', e => {
     const t = e.target; if (t.tagName !== 'circle' || !t._r) return; const r = t._r;
-    showTip(`<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m²</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div>`, e.clientX, e.clientY);
+    showTip(`<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${homeTypeLabel(r)}</b></div><div class="tt-row"><span>Størrelse</span><b>${r.a} m²</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div>`, e.clientX, e.clientY);
   }, true);
   gDots.addEventListener('mouseout', hideTip, true);
 
@@ -1410,8 +1410,13 @@ function drawBoundaries() {
     });
   });
 }
+// precise Danish type label (Rækkehus, Fritidshus, Villalejl. …) when the
+// build provides one; otherwise the coarse house/apartment split.
+// function declaration (not const) so it's hoisted — it's called from render
+// paths that run before this point in the file.
+function homeTypeLabel(r) { return r.sub || (r.t === 'villa' ? 'Villa' : 'Ejerlejl.'); }
 function listingTip(r) {
-  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${r.t === 'villa' ? 'Villa' : 'Ejerlejl.'}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}`;
+  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${homeTypeLabel(r)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}`;
 }
 // dots grow as you zoom in — keeps them visible and easy to hover/hit
 const radiusForZoom = z => Math.max(4, Math.min(11, 4 + (z - 10) * 1.15));
@@ -1620,7 +1625,7 @@ function fairValue() {
   // exclude homes with a kommune land-reversion clause — their asking price
   // reflects the encumbrance, not the home, and would distort the model
   const rows = S.all.filter(r => r.m2p > 0 && r.a > 0 && !r.hf);
-  const out = { pred: new Map(), resid: new Map(), r2: null, mape: null, lo: null, hi: null, n: rows.length };
+  const out = { pred: new Map(), resid: new Map(), r2: null, mape: null, lo: null, hi: null, n: rows.length, odd: new Set() };
   if (rows.length < 200) { _fv = out; return out; }
   const munis = [...new Set(rows.map(r => r.muni))].sort();
   const ER = { a: 7, b: 6, c: 5, d: 4, e: 3, f: 2, g: 1 };
@@ -1695,7 +1700,19 @@ function fairValue() {
     out.hi = Math.exp(q[Math.floor(q.length * 0.9)]);
   }
 
-  const beta = fit(rows.map((_, i) => i));
+  // Robust refit: a handful of listings aren't ordinary homes — houseboats
+  // (no plot, a fraction of the local kr/m²), andelslignende sales, encumbered
+  // plots. Left in, they drag the whole surface down. Fit once, then drop rows
+  // more than 3 robust SDs off and refit, so the model describes normal homes.
+  const b0 = fit(rows.map((_, i) => i));
+  const res0 = rows.map((_, i) => y[i] - dot(b0, X[i]));
+  const med = arr => { const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const m0 = med(res0), mad = med(res0.map(e => Math.abs(e - m0))) || 1e-6;
+  const cut = 3 * 1.4826 * mad;
+  const keep = [];
+  rows.forEach((r, i) => { if (Math.abs(res0[i] - m0) <= cut) keep.push(i); else out.odd.add(r.id); });
+  const beta = keep.length > p + 50 ? fit(keep) : b0;
+
   const ybar = y.reduce((a, b) => a + b, 0) / n; let ssr = 0, sst = 0;
   rows.forEach((r, i) => {
     const yh = dot(beta, X[i]);
@@ -1759,7 +1776,7 @@ function card(r) {
   const fav = el('button', { class: 'fav' + (isFav(r.id) ? ' on' : ''), type: 'button', title: isFav(r.id) ? 'Fjern fra gemte' : 'Gem bolig', 'aria-label': isFav(r.id) ? 'Fjern fra gemte' : 'Gem bolig', 'aria-pressed': isFav(r.id) ? 'true' : 'false' }, isFav(r.id) ? '♥' : '♡');
   fav.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleFav(r.id, r.p); renderCards(filtered()); });
   thumb.append(fav);
-  thumb.append(el('span', { class: 'badge ' + r.t }, r.t === 'villa' ? 'Villa' : 'Ejerlejl.'));
+  thumb.append(el('span', { class: 'badge ' + r.t }, homeTypeLabel(r)));
   if (r.d != null && r.d <= NEW_DAYS) thumb.append(el('span', { class: 'newbadge' }, 'Ny'));
   if (r.ssn) thumb.append(el('span', { class: 'stbadge' + (r.near ? ' near' : '') }, `${r.near ? '🚆 ' : ''}${r.ssn} · ${(r.sst / 1000).toLocaleString('da-DK', { maximumFractionDigits: 1 })} km`));
   a.append(thumb);
@@ -1801,7 +1818,10 @@ function card(r) {
     // only flag a deviation that clearly exceeds the model's own uncertainty —
     // otherwise we'd label ordinary noise a bargain
     const band = FV.mape != null ? Math.max(6, FV.mape) : 6;
-    if (fvr != null && Math.abs(fvr) >= band) {
+    // homes the model itself treats as atypical (houseboat, andelslignende,
+    // encumbered plot …) get no verdict — a bogus "under vurdering" on those
+    // would read as a bargain when it's really a different kind of property
+    if (fvr != null && !FV.odd.has(r.id) && Math.abs(fvr) >= band) {
       const under = fvr < 0, mag = Math.abs(fvr);
       // cap the shown magnitude so a genuine oddball (andel, encumbered plot…)
       // doesn't scream "50 %+" — the exact figure stays in the tooltip

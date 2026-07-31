@@ -45,7 +45,32 @@ MUNICIPALITIES = {
     "fredensborg":     ("Fredensborg", 210),
 }
 MUNI_NAME = {s: v[0] for s, v in MUNICIPALITIES.items()}
-TYPES = ["condo", "villa"]  # ejerlejlighed, villa
+TYPES = ["condo", "villa"]  # the two addressTypes filters we query boligsiden with
+
+# boligsiden's raw addressType → our house/apartment split. The two query filters
+# don't line up with the real thing (the villa filter returns farms, hobby farms
+# and fritidshuse; the condo filter returns rækkehuse), so classify on the raw
+# value: anything you live in with your own ground is a "villa" (house), anything
+# that is a flat in a larger building is a "condo" (lejlighed).
+ADDR_TYPE_T = {
+    "villa": "villa",
+    "terraced house": "villa",      # rækkehus
+    "farm": "villa",                # landejendom
+    "hobby farm": "villa",          # hobbylandbrug
+    "holiday house": "villa",       # fritidshus
+    "condo": "condo",
+    "villa apartment": "condo",     # villalejlighed — a flat, not a house
+}
+# precise Danish label kept for display, so a rækkehus doesn't read as "Villa"
+ADDR_TYPE_DA = {
+    "villa": "Villa",
+    "terraced house": "Rækkehus",
+    "farm": "Landejendom",
+    "hobby farm": "Hobbylandbrug",
+    "holiday house": "Fritidshus",
+    "condo": "Ejerlejl.",
+    "villa apartment": "Villalejl.",
+}
 
 # "Near the S-train" heuristic (metres, straight-line to nearest S-train station).
 # 1 km ≈ a 12-min walk — a realistic catchment. (Metro uses a tighter 500 m on the
@@ -168,11 +193,14 @@ def trim(case, qtype=None):
     strain_d = haversine_m(lat, lon, strain_only[2], strain_only[3])
     return {
         "id": case.get("caseID"),
-        # The queried addressTypes filter is the source of truth: boligsiden's own
-        # villa filter also returns house-like types (fritidsbolig, rækkehus, …)
-        # whose addressType string isn't literally "villa" — those used to fall
-        # through to "condo" and showed up as ejerlejligheder.
-        "t": qtype if qtype in ("condo", "villa") else ("villa" if case.get("addressType") == "villa" else "condo"),
+        # House vs. apartment is decided by boligsiden's own addressType, mapped
+        # through HOUSE_TYPES — the query filter alone isn't enough in either
+        # direction: its villa filter also returns farms/fritidshuse, and its
+        # condo filter returns rækkehuse. Unknown/missing types fall back to the
+        # queried filter. "sub" keeps the precise Danish label for the card.
+        "t": ADDR_TYPE_T.get(str(case.get("addressType") or "").strip().lower())
+             or (qtype if qtype in ("condo", "villa") else "condo"),
+        "sub": ADDR_TYPE_DA.get(str(case.get("addressType") or "").strip().lower()),
         "p": case.get("priceCash"),
         "m2p": case.get("perAreaPrice"),
         "a": case.get("housingArea"),
