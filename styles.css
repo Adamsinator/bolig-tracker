@@ -276,22 +276,29 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .gridline { stroke:var(--grid); stroke-width:1; }
 
 /* ---- listing cards ---- */
-.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; }
+.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; }
 .lcard { border:1px solid var(--border); border-radius:14px; overflow:hidden; background:var(--surface);
   display:flex; flex-direction:column; text-decoration:none; color:inherit; transition:transform .08s, box-shadow .12s; }
 .lcard:hover { transform:translateY(-2px); box-shadow:var(--shadow); }
 .lcard .thumb { height:78px; background:var(--surface-2); position:relative; overflow:hidden; }
 .lcard .thumb.condo { background:linear-gradient(135deg, color-mix(in srgb, var(--condo) 16%, var(--surface-2)), var(--surface-2)); }
 .lcard .thumb.villa { background:linear-gradient(135deg, color-mix(in srgb, var(--villa) 16%, var(--surface-2)), var(--surface-2)); }
-.lcard .thumb::after { position:absolute; right:10px; bottom:6px; font-size:30px; opacity:.16; line-height:1; pointer-events:none; }
+.lcard .thumb::after { position:absolute; right:8px; bottom:4px; font-size:22px; opacity:.16; line-height:1;
+  pointer-events:none; z-index:0; }
 .lcard .thumb.condo::after { content:"🏢"; }
 .lcard .thumb.villa::after { content:"🏡"; }
-.lcard .badge { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.72); color:#fff;
+.lcard .badge { position:absolute; top:8px; left:8px; z-index:1; background:rgba(0,0,0,.72); color:#fff;
   font-size:11px; font-weight:600; padding:3px 7px; border-radius:6px; }
 .lcard .badge.villa{ background:var(--villa); } .lcard .badge.condo{ background:var(--condo); }
-.lcard .newbadge { position:absolute; top:34px; left:8px; background:var(--good); color:#fff;
+.lcard .newbadge { position:absolute; top:34px; left:8px; z-index:1; background:var(--good); color:#fff;
   font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:6px; letter-spacing:.02em; }
-.lcard .stbadge { position:absolute; bottom:8px; left:8px; background:var(--surface); color:var(--ink-2);
+/* z-index above the thumb's corner watermark (::after), and capped short of it
+   so a long station name (e.g. "Lyngby-Taarbæk · 1,2 km") truncates instead of
+   running underneath the emoji and becoming unreadable — worse the narrower
+   the card gets, which is exactly what shrinking .cards to fit 5/row does. */
+.lcard .stbadge { position:absolute; bottom:8px; left:8px; z-index:1; max-width:calc(100% - 44px);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  background:var(--surface); color:var(--ink-2);
   font-size:10.5px; font-weight:600; padding:3px 7px; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.2); }
 .lcard .stbadge.near { color:var(--good); }
 .lcard .body { padding:11px 12px 13px; display:flex; flex-direction:column; gap:2px; }
