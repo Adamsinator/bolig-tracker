@@ -1664,6 +1664,56 @@ def annotate_noise(listings, noise):
           f"({loud} at 58 dB or above)")
 
 
+def _read_grid(doc, label):
+    """Decode one of the gzipped byte grids (noise, parcel rows) and return
+    (grid, cols, rows, bbox) — or None if it doesn't check out."""
+    if not doc or not doc.get("data"):
+        return None
+    try:
+        grid = gzip.decompress(base64.b64decode(doc["data"]))
+    except Exception as ex:
+        print(f"  {label}: could not decode the grid ({ex})", file=sys.stderr)
+        return None
+    cols, rows = int(doc["cols"]), int(doc["rows"])
+    if len(grid) != cols * rows:
+        print(f"  {label}: grid is {len(grid)} bytes, expected {cols*rows} — skipping",
+              file=sys.stderr)
+        return None
+    return grid, cols, rows, tuple(float(v) for v in doc["bbox"])
+
+
+def annotate_parcel_row(listings, doc):
+    """Add r['row'] — how many matrikler lie between the home and the water.
+
+    0 means the home's own parcel borders the coastline: first row, by cadastral
+    fact rather than by proximity. This is what distance to water cannot say —
+    a house 60 m back with the sea at the end of its garden and one 60 m back
+    behind a neighbour are the same distance and very different homes.
+
+    data/parcelrow.json stores row+1 per cell on the same grid geometry as the
+    noise map, so this is an index lookup. A 0 cell means no parcel was mapped
+    there, which is the normal case away from the coast — those listings simply
+    get no 'row' rather than a made-up one. Fail-soft: no grid → no-op."""
+    got = _read_grid(doc, "parcel rows")
+    if not got:
+        return
+    grid, cols, rows, (w, s, e, n_) = got
+    hit = 0
+    for r in listings:
+        lat, lon = r.get("lat"), r.get("lon")
+        if lat is None or lon is None or not (w <= lon <= e and s <= lat <= n_):
+            continue
+        col = min(cols - 1, int((lon - w) / (e - w) * cols))
+        row = min(rows - 1, int((n_ - lat) / (n_ - s) * rows))
+        v = grid[row * cols + col]
+        if v:
+            r["row"] = int(v) - 1
+            hit += 1
+    first = sum(1 for r in listings if r.get("row") == 0)
+    print(f"  parcel rows: {cols}×{rows} grid, {hit}/{len(listings)} listings on a "
+          f"mapped parcel ({first} in first row to the water)")
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(here, "..", "data")
@@ -1748,6 +1798,17 @@ def main():
                 annotate_noise(listings, json.load(f))
         except Exception as ex:
             print(f"  noise annotation failed ({ex})", file=sys.stderr)
+
+    # Coastal matrikel rows: another static artefact, built once by
+    # scripts/fetch_parcels_once.py, since parcel boundaries barely move.
+    row_path = os.path.join(data_dir, "parcelrow.json")
+    if os.path.exists(row_path):
+        print("Matching addresses against the coastal matrikel rows…")
+        try:
+            with open(row_path, encoding="utf-8") as f:
+                annotate_parcel_row(listings, json.load(f))
+        except Exception as ex:
+            print(f"  parcel row annotation failed ({ex})", file=sys.stderr)
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)

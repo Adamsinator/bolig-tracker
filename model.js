@@ -57,6 +57,15 @@
     // top of the broad log distance, and let houses carry their own slope: a
     // garden on the water is worth more than a flat 80 m back from it.
     const seaNear = r => Math.exp(-geoOf(r, SEA) / 150);
+    // How many matrikler lie between the home and the water. Distance says a
+    // waterfront garden and the house behind it are identical; the cadastral
+    // row says they are not. Entered as indicators rather than a number, because
+    // the step from row 0 to row 1 is not the same size as row 2 to row 3 — the
+    // first one is the whole premium. Homes with no row (away from the coast,
+    // or on no mapped parcel) get all-zero, which is the correct "not on the
+    // waterfront" reading rather than an imputed value.
+    const hasRow = rows.some(r => r.row != null);
+    const rowIs = (r, k) => (r.row === k ? 1 : 0);
     // road-traffic noise at the façade (Lden, dB) from Miljøstyrelsen's 2022 EU
     // noise mapping. Centred on 55 dB — the level at which the map starts — and
     // scaled by 10 so a whole band moves the feature by half a unit. A home with
@@ -76,6 +85,9 @@
       if (hasGeo) {
         GEO_KEYS.forEach(k => f.push(Math.log(geoOf(r, k) + 1) / 10));
         f.push(seaNear(r), seaNear(r) * (r.t === 'villa' ? 1 : 0));
+        // first row is the one that carries the premium; 1 and 2 are kept apart
+        // so the model can say how fast it decays instead of being told
+        if (hasRow) f.push(rowIs(r, 0), rowIs(r, 1), rowIs(r, 2));
       }
       if (hasNoise) f.push((dbOf(r) - 55) / 10);
       for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
