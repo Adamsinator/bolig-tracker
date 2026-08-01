@@ -1396,13 +1396,33 @@ def _time_factors(series_all, series_by_muni=None):
     return factors
 
 
-def annotate_comps(listings, points, series_all=None, series_by_muni=None):
+def annotate_comps(listings, points, series_all=None, series_by_muni=None, grundareal=None):
     if not points:
         return 0
     factors = _time_factors(series_all, series_by_muni)
     if factors:
         print(f"    comps: time-adjusting via corridor quarterly medians "
               f"({', '.join(f'{t}:{len(f)}q' for t, f in factors.items())})")
+    area_of = _grundareal_lookup(grundareal)
+    lot_from_grid = 0
+    if area_of:
+        # Resolve once per sold point rather than once per (listing, candidate)
+        # pair — the same point is re-examined by every nearby listing, so
+        # doing this inside that loop would look up the same coordinate
+        # hundreds of times over and make the "how many did we backfill"
+        # count meaningless.
+        filled = []
+        for p in points:
+            if len(p) > 7 and p[7]:
+                filled.append(p)
+                continue
+            a = area_of(p[0], p[1])
+            if a:
+                lot_from_grid += 1
+            filled.append((*p[:7], a) if len(p) > 7 else (*p, a))
+        points = filled
+        print(f"    comps: grundareal grid filled {lot_from_grid}/{len(points)} sold points "
+              f"that had no lot size from boliga")
     grid = {}
     for p in points:
         grid.setdefault((int(p[0] / COMP_CELL), int(p[1] / COMP_CELL)), []).append(p)
@@ -1682,6 +1702,48 @@ def _read_grid(doc, label):
     return grid, cols, rows, tuple(float(v) for v in doc["bbox"])
 
 
+def _grundareal_lookup(doc):
+    """Build a nearest-point area lookup from data/grundareal.json — a flat
+    [lat, lon, logarea] array covering every matrikel in the region, fetched
+    once by fetch_parcel_areas_once.py. Returns a f(lat, lon) -> area_m2 (or
+    None) closure using the same coarse spatial hash as annotate_comps/
+    annotate_geo_distance, or None if the file isn't there.
+
+    This is a point lookup, not a polygon match, so a coordinate right on a
+    parcel boundary can resolve to the neighbouring parcel. Fine for a ±40%
+    comp-matching tolerance; would not be fine for anything needing the exact
+    parcel."""
+    if not doc or not doc.get("data"):
+        return None
+    try:
+        flat = json.loads(gzip.decompress(base64.b64decode(doc["data"])))
+    except Exception as ex:
+        print(f"  grundareal: could not decode ({ex})", file=sys.stderr)
+        return None
+    scale = float(doc.get("logScale", 20.0))
+    CELL = 0.01
+    grid = {}
+    for i in range(0, len(flat) - 2, 3):
+        la, lo, logv = flat[i], flat[i + 1], flat[i + 2]
+        grid.setdefault((int(la / CELL), int(lo / CELL)), []).append((la, lo, logv))
+    print(f"  grundareal: {len(flat)//3} parcels loaded")
+
+    def lookup(lat, lon):
+        ci, cj = int(lat / CELL), int(lon / CELL)
+        best, best_d = None, None
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for la, lo, logv in grid.get((ci + di, cj + dj), ()):
+                    d = (la - lat) ** 2 + (lo - lon) ** 2
+                    if best_d is None or d < best_d:
+                        best_d, best = d, logv
+        if best is None:
+            return None
+        return round(2 ** (best / scale))
+
+    return lookup
+
+
 def annotate_parcel_row(listings, doc):
     """Add r['row'] — how many matrikler lie between the home and the water.
 
@@ -1813,11 +1875,23 @@ def main():
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
 
+    # Grundareal: another static, one-off artefact (fetch_parcel_areas_once.py).
+    # Boliga's sold records carry a lot size on essentially none of them, so
+    # this is what actually lets the comps' lot-size matching do anything.
+    grundareal = None
+    ga_path = os.path.join(data_dir, "grundareal.json")
+    if os.path.exists(ga_path):
+        try:
+            with open(ga_path, encoding="utf-8") as f:
+                grundareal = json.load(f)
+        except Exception as ex:
+            print(f"  grundareal load failed ({ex})", file=sys.stderr)
+
     print("Fetching realised sold prices (Boliga / tinglysning)…")
     sold = fetch_sold(listings)
     if sold:
         n_comp = annotate_comps(listings, sold.pop("points", []),
-                                sold.get("seriesAll"), sold.get("series"))
+                                sold.get("seriesAll"), sold.get("series"), grundareal)
         print(f"  comps: {n_comp}/{len(listings)} listings got a local realised benchmark")
 
     with open(os.path.join(data_dir, "listings.json"), "w", encoding="utf-8") as f:
