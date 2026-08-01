@@ -75,6 +75,7 @@ def fetch(url, tries=5):
 def main():
     flat = []          # [lat1, lon1, logarea1, lat2, lon2, logarea2, ...]
     t0 = time.time()
+    sanity_checked = False
     for code, name in KOMMUNER.items():
         n_before = len(flat) // 3
         side = 1
@@ -87,11 +88,29 @@ def main():
                       file=sys.stderr)
                 break
             for rec in recs:
-                vc = rec.get("visueltcenter") or {}
-                lon, lat = vc.get("x"), vc.get("y")
+                # plain (non-geojson) jordstykker gives visueltcenter as a
+                # bare [lon, lat] pair, not {x, y} — that was the geojson
+                # shape from an earlier probe, wrong assumption here
+                vc = rec.get("visueltcenter") or []
+                if isinstance(vc, dict):
+                    lon, lat = vc.get("x"), vc.get("y")
+                elif isinstance(vc, (list, tuple)) and len(vc) == 2:
+                    lon, lat = vc
+                else:
+                    lon, lat = None, None
                 area = rec.get("registreretareal")
                 if lon is None or lat is None or not area or area <= 0:
                     continue
+                # Region Hovedstaden is roughly lon 11.8-12.8, lat 55.5-56.2 —
+                # catch a swapped lon/lat once, loudly, rather than 237k times
+                if not sanity_checked:
+                    if not (10 < lon < 15 and 54 < lat < 58):
+                        sys.exit(f"visueltcenter looks wrong: lon={lon} lat={lat} "
+                                 f"(rec={rec.get('matrikelnr')}/{rec.get('ejerlav')}) "
+                                 f"— check the field shape before trusting the rest")
+                    print(f"  sanity check ok: first parcel at lon={lon:.5f} lat={lat:.5f} "
+                          f"area={area}", flush=True)
+                    sanity_checked = True
                 logv = round(math.log2(area) * LOG_SCALE) if area else 0
                 flat.extend((round(lat, 5), round(lon, 5), logv))
             if len(recs) < PER_SIDE or side > 200:
