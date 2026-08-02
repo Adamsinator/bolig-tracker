@@ -744,7 +744,9 @@ def track_listings(data_dir, listings, today, keep_removed_days=365):
 # ---------------------------------------------------------------------------
 OVERPASS_MIRRORS = ["https://overpass-api.de/api/interpreter",
                     "https://overpass.kumi.systems/api/interpreter",
-                    "https://overpass.osm.jp/api/interpreter",
+                    # overpass.osm.jp dropped: fails TLS on every attempt
+                    # (certificate doesn't match the hostname), not a transient
+                    # blip — confirmed while probing the widened CORRIDOR_BBOX.
                     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
                     "https://overpass.private.coffee/api/interpreter"]
 TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
