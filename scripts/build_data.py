@@ -836,14 +836,20 @@ def fetch_transit():
                           "colour": t.get("colour") or t.get("color"), "segs": segs})
     n_metro = len(lines)
 
-    # Local light-rail lines (Nærumbanen, Gribskovbanen): route=light_rail
-    # relations that aren't S-tog. Wider corridor bbox so Gribskovbanen (north of
-    # Hillerød) is caught; one polyline per line, labelled by name.
+    # Local/regional lines (Nærumbanen, Gribskovbanen, Frederiksværkbanen, Lille
+    # Nord, DSB Regionaltog…): route=light_rail relations that aren't S-tog, plus
+    # route=train relations restricted to network="Takst Sjælland" — the tag
+    # Lokaltog A/S's privatbaner and DSB's regional trains share, which also
+    # happens to exclude exactly what should stay out: InterCity/Lyntog
+    # (network=None) and the Swedish Skånetrafiken/SJ/Øresundståg relations that
+    # clip the bbox near Helsingør (network="Skånetrafiken"/"SJ"/"Øresundståg").
+    # Confirmed by probing OSM directly (#24 follow-up) rather than assumed.
     LOKAL_NAMES = {"910": "Nærumbanen", "L41": "Gribskovbanen"}
     s2, w2, n2, e2 = CORRIDOR_BBOX
     lok = _overpass(f'[out:json][timeout:90];rel["route"="light_rail"]({s2},{w2},{n2},{e2});out geom;')
+    reg = _overpass(f'[out:json][timeout:90];rel["route"="train"]["network"="Takst Sjælland"]({s2},{w2},{n2},{e2});out geom;')
     seen_lokal = set()
-    for r in (lok or {}).get("elements", []):
+    for r in (lok or {}).get("elements", []) + (reg or {}).get("elements", []):
         t = r.get("tags", {}) or {}
         name = t.get("name") or ""
         if "s-tog" in name.lower():
@@ -959,13 +965,20 @@ def fetch_stog_stations(rail_geom):
     """Real S-tog stops from the OSM route relations, so the map isn't limited to
     the curated corridor list (which stopped at Hillerød and left Frederikssund,
     Favrholm, Høje Taastrup, Køge … off). Each stop is assigned to the line whose
-    geometry runs closest. Fail-soft: returns [] on any error."""
+    geometry runs closest. Also pulls stops on the region's other Takst Sjælland
+    trains (Lokaltog A/S's Frederiksværkbanen/Lille Nord, DSB Regionaltog) —
+    without these, a home near Gilleleje or Hundested had its "nearest station"
+    computed against the closest S-tog stop instead, tens of km away (#24
+    follow-up: those towns only entered the tracked region with the expansion).
+    Fail-soft: returns [] on any error."""
     try:
         s, w, n, e = CORRIDOR_BBOX
+        seen = {name.lower() for name, *_ in ALL_STATIONS}
+        added = []
+
         data = _overpass(
             f'[out:json][timeout:120];rel["route"="light_rail"]["name"~"S-tog"]({s},{w},{n},{e});'
             f'node(r)->.n;.n out body;')
-        seen = {name.lower() for name, *_ in ALL_STATIONS}
         found = []
         for el in (data or {}).get("elements", []):
             t = el.get("tags") or {}
@@ -981,8 +994,7 @@ def fetch_stog_stations(rail_geom):
                 continue
             seen.add(key)
             found.append((name, el["lat"], el["lon"]))
-        # assign each new stop to the nearest line ref (for the map colour)
-        added = []
+        # assign each new S-tog stop to the nearest line ref (for the map colour)
         for name, la, lo in found:
             best_ref, best_d = None, None
             for ref, segs in (rail_geom or {}).items():
@@ -996,7 +1008,29 @@ def fetch_stog_stations(rail_geom):
             # ~1.5 km cutoff so unrelated stations in the bbox aren't pulled in
             if best_ref and best_d is not None and best_d ** 0.5 < 0.015:
                 added.append((name, best_ref, round(la, 5), round(lo, 5), True))
-        print(f"  stations: +{len(added)} S-tog stops from OSM "
+        n_stog = len(added)
+
+        # Lokaltog A/S + DSB Regionaltog stops: no line-geometry match needed,
+        # the network tag alone (same filter as the lokalbane fetch above)
+        # already confirms these belong — most names duplicate existing S-tog/
+        # Kystbanen stops (Nivå, Høje Taastrup…) and get skipped via `seen`.
+        rdata = _overpass(
+            f'[out:json][timeout:120];rel["route"="train"]["network"="Takst Sjælland"]({s},{w},{n},{e});'
+            f'node(r)->.n;.n out body;')
+        for el in (rdata or {}).get("elements", []):
+            t = el.get("tags") or {}
+            name = (t.get("name") or "").strip()
+            if not name or el.get("type") != "node":
+                continue
+            if not (t.get("railway") in ("station", "halt", "stop")
+                    or t.get("public_transport") in ("station", "stop_position")):
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            added.append((name, "lokal", round(el["lat"], 5), round(el["lon"], 5), False))
+        print(f"  stations: +{n_stog} S-tog stops, +{len(added) - n_stog} regional/lokal stops from OSM "
               f"({', '.join(sorted(a[0] for a in added)[:12])}{' …' if len(added) > 12 else ''})")
         return added
     except Exception as ex:
