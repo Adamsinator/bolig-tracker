@@ -46,6 +46,23 @@ MUNICIPALITIES = {
     "herlev":          ("Herlev", 163),
     "egedal":          ("Egedal", 240),
     "fredensborg":     ("Fredensborg", 210),
+    # Region Hovedstaden, remainder (Bornholm excluded — different ferry/flight
+    # market, not comparable comps). Codes cross-checked against DAWA jordstykker
+    # while fetching data/grundareal.json — all 28 returned real parcel counts.
+    "albertslund":     ("Albertslund", 165),
+    "broendby":        ("Brøndby", 153),
+    "dragoer":         ("Dragør", 155),
+    "frederikssund":   ("Frederikssund", 250),
+    "glostrup":        ("Glostrup", 161),
+    "gribskov":        ("Gribskov", 270),
+    "halsnaes":        ("Halsnæs", 260),
+    "helsingoer":      ("Helsingør", 217),
+    "hvidovre":        ("Hvidovre", 167),
+    "hoeje-taastrup":  ("Høje-Taastrup", 169),
+    "ishoej":          ("Ishøj", 183),
+    "roedovre":        ("Rødovre", 175),
+    "taarnby":         ("Tårnby", 185),
+    "vallensbaek":     ("Vallensbæk", 187),
 }
 MUNI_NAME = {s: v[0] for s, v in MUNICIPALITIES.items()}
 TYPES = ["condo", "villa"]  # the two addressTypes filters we query boligsiden with
@@ -731,9 +748,11 @@ OVERPASS_MIRRORS = ["https://overpass-api.de/api/interpreter",
                     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
                     "https://overpass.private.coffee/api/interpreter"]
 TRANSIT_BBOX = (55.55, 12.34, 55.86, 12.70)   # s, w, n, e — greater Copenhagen
-# Wider box covering the whole tracked corridor (København → Hillerød,
-# Frederikssund → the coast) for S-train track geometry and amenities.
-CORRIDOR_BBOX = (55.58, 12.05, 55.96, 12.70)  # s, w, n, e
+# Wider box covering all tracked kommuner (Region Hovedstaden minus Bornholm):
+# Dragør/Vallensbæk in the south, Halsnæs/Frederikssund in the west, Gribskov/
+# Helsingør on the north coast. Used for rail geometry, POIs and geo-distance
+# features, not per-kommune — one Overpass query per layer over this box.
+CORRIDOR_BBOX = (55.55, 11.85, 56.15, 12.70)  # s, w, n, e
 
 @contextlib.contextmanager
 def hard_timeout(seconds):
