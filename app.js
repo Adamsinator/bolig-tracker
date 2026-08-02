@@ -1359,7 +1359,7 @@ function drawBoundaries() {
 // paths that run before this point in the file.
 function homeTypeLabel(r) { return r.sub || (r.t === 'villa' ? 'Villa' : 'Ejerlejl.'); }
 function listingTip(r) {
-  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${homeTypeLabel(r)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}`;
+  return `<div class="tt-title">${esc(r.adr)}</div><div class="tt-row"><span>${esc(r.city)}</span><b>${homeTypeLabel(r)}</b></div><div class="tt-row"><span>Pris</span><b>${krM(r.p)}</b></div><div class="tt-row"><span>Pris/m²</span><b>${m2(r.m2p)}</b></div><div class="tt-row"><span>Størrelse</span><b>${dims(r)}</b></div><div class="tt-row"><span>Liggetid</span><b>${r.d != null ? r.d + ' dage' : '–'}</b></div>${r.ssn ? `<div class="tt-row"><span>S-tog</span><b>${esc(r.ssn)} · ${r.sst} m</b></div>` : ''}${r.row === 0 ? `<div class="tt-row"><span>🌊 Vandkant</span></div>` : ''}`;
 }
 // dots grow as you zoom in — keeps them visible and easy to hover/hit
 const radiusForZoom = z => Math.max(4, Math.min(11, 4 + (z - 10) * 1.15));
@@ -1673,6 +1673,11 @@ function card(r) {
     meta.append(el('span', { class: 'commute-dist' }, parts.join(' · ')));
   }
   body.append(meta);
+  // row 0 = this parcel's own boundary meets the coastline (cadastral fact,
+  // not a distance guess) — see annotate_parcel_row in build_data.py
+  if (r.row === 0) {
+    body.append(el('div', { class: 'waterbadge', title: 'Grunden grænser op til kysten, ifølge matrikelkortet.' }, '🌊 Vandkant'));
+  }
   if (r.hf) {
     // kommune land-reversion clause — flag it; its low price isn't a "deal"
     body.append(el('div', { class: 'hfbadge', title: 'Kommunen har hjemfaldspligt / tilbagekøbsret på grunden — kan sænke værdien markant. Læs annoncen.' }, '⚠ Hjemfald / tilbagekøb'));

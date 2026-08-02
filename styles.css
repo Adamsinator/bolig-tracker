@@ -14,6 +14,7 @@
   --villa:        #eb6834;
   --good:         #006300;
   --bad:          #d03b3b;
+  --water:        #0f6fb0;
   --shadow:       0 1px 2px rgba(11,11,11,.05), 0 8px 24px rgba(11,11,11,.05);
   --map-bg:       #dbe6ee;
   --bubble-edge:  #c8ced6;
@@ -40,6 +41,7 @@
   --villa:        #d95926;
   --good:         #0ca30c;
   --bad:          #e06464;
+  --water:        #6cb6ea;
   --shadow:       0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
   --map-bg:       #0f1620;
   --bubble-edge:  #3a4149;
@@ -55,7 +57,7 @@
     --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
     --ink:#fff; --ink-2:#c3c2b7; --muted:#898781; --grid:#2c2c2a; --axis:#383835;
     --border:rgba(255,255,255,.12); --border-2:rgba(255,255,255,.06);
-    --condo:#3987e5; --villa:#d95926; --good:#0ca30c; --bad:#e06464;
+    --condo:#3987e5; --villa:#d95926; --good:#0ca30c; --bad:#e06464; --water:#6cb6ea;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
     --map-bg:#0f1620; --bubble-edge:#3a4149; --land:#20242a; --land-edge:#333a40; --land-sel:#2b2a20; --land-sel-edge:#b7902f;
     --seq-1:#12324f; --seq-2:#184f95; --seq-3:#256abf; --seq-4:#3987e5; --seq-5:#6da7ec; --seq-6:#9ec5f4;
@@ -331,6 +333,8 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .lcard .valbadge.up { color:var(--bad); background:color-mix(in srgb, var(--bad) 13%, transparent); }
 .lcard .hfbadge { align-self:flex-start; margin-top:7px; font-size:11px; font-weight:700; padding:2px 8px;
   border-radius:999px; color:var(--bad); background:color-mix(in srgb, var(--bad) 15%, transparent); }
+.lcard .waterbadge { align-self:flex-start; margin-top:7px; font-size:11px; font-weight:700; padding:2px 8px;
+  border-radius:999px; color:var(--water); background:color-mix(in srgb, var(--water) 14%, transparent); }
 .lcard .compline { margin-top:6px; font-size:11.5px; color:var(--muted); }
 /* topbar nav link (→ renter subpage / ← back) */
 .nav-link { display:inline-flex; align-items:center; gap:6px; text-decoration:none; font-weight:700;
