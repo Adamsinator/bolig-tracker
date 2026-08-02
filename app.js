@@ -13,6 +13,11 @@ const S = {
   A: null, B: null, radA: 3, radB: 3,   // home/work points {name,lat,lon}
   dstArea: '01', indexMode: 'krm2', bvc: null,
 };
+// Boliger now sits above the map/charts, so its initial page must stay short
+// or it pushes everything else off-screen — especially on a phone. Collapsed
+// to 5 (mobile) / 10 (desktop, 2 rows at 5-per-row) until "Vis flere" is hit.
+const MOBILE_MQ = matchMedia('(max-width:640px)');
+const collapsedCount = () => MOBILE_MQ.matches ? 5 : 10;
 const $ = (s, r = document) => r.querySelector(s);
 const el = (t, a = {}, ...kids) => {
   const n = document.createElement(t);
@@ -65,6 +70,7 @@ async function boot() {
     meta.municipalities.forEach(m => S.munis.add(m.slug));
     S.favs = loadFavs();    // saved homes (device-local)
     decodeState();          // apply any filters carried in the URL
+    S.shown = collapsedCount();
     initUI();
     initMap();
     render();
@@ -88,7 +94,7 @@ function initUI() {
 
   $('#typeSeg').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    S.type = b.dataset.type; S.shown = 60;
+    S.type = b.dataset.type; S.shown = collapsedCount();
     [...e.currentTarget.children].forEach(c => c.classList.toggle('active', c === b));
     render();
   });
@@ -105,14 +111,14 @@ function initUI() {
   chipKb(allBtn, () => {
     const allOn = S.munis.size === S.meta.municipalities.length;
     S.munis = new Set(allOn ? [] : S.meta.municipalities.map(m => m.slug));
-    S.shown = 60; autoFollowDstArea(); autoFollowCompare(); render(); fitToSelection();
+    S.shown = collapsedCount(); autoFollowDstArea(); autoFollowCompare(); render(); fitToSelection();
   });
   wrap.append(allBtn);
   S.meta.municipalities.forEach(m => {
     const c = el('span', { class: 'chip on' }, m.name);
     chipKb(c, () => {
       if (S.munis.has(m.slug)) S.munis.delete(m.slug); else S.munis.add(m.slug);
-      S.shown = 60; autoFollowDstArea(); autoFollowCompare(); render(); fitToSelection();
+      S.shown = collapsedCount(); autoFollowDstArea(); autoFollowCompare(); render(); fitToSelection();
     });
     c._slug = m.slug; wrap.append(c);
   });
@@ -120,7 +126,7 @@ function initUI() {
   // filters
   const on = (id, key, isNum) => $(id).addEventListener('change', e => {
     const v = e.target.type === 'checkbox' ? e.target.checked : (e.target.value || null);
-    S[key] = isNum && v ? +v : v; S.shown = 60; render();
+    S[key] = isNum && v ? +v : v; S.shown = collapsedCount(); render();
   });
   on('#priceMin', 'priceMin', 1); on('#priceMax', 'priceMax', 1); on('#rooms', 'rooms', 1);
   on('#areaMin', 'areaMin', 1); on('#areaMax', 'areaMax', 1); on('#lotMin', 'lotMin', 1);
@@ -133,13 +139,13 @@ function initUI() {
   $('#showMetro').addEventListener('change', e => { S.showMetro = e.target.checked; applyTransitVisibility(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); });
   { const pc = $('#showPois'); if (pc) pc.addEventListener('change', e => { S.showPois = e.target.checked; drawPois(); renderMapLegend(S.colorBy, filtered(), LINE_COLORS()); }); }
   $('#search').addEventListener('input', e => {
-    S.search = e.target.value.toLowerCase().trim(); S.shown = 60; render();
+    S.search = e.target.value.toLowerCase().trim(); S.shown = collapsedCount(); render();
     // A postnummer (4-digit token, e.g. 2900) zooms the map to that area only;
     // clearing the search restores the current kommune view.
     if (/\b\d{4}\b/.test(S.search)) fitToPoints(filtered());
     else if (!S.search) fitToSelection();
   });
-  $('#loadMore').addEventListener('click', () => { S.shown += 60; renderCards(filtered()); });
+  $('#loadMore').addEventListener('click', () => { S.shown = S.shown < 60 ? 60 : S.shown + 60; renderCards(filtered()); });
   $('#resetFilters').addEventListener('click', resetFilters);
 
   // DST area select — only the corridor landsdele we can anchor to real kr/m²
@@ -200,7 +206,7 @@ function resetFilters() {
     floorMin: null, yearMin: null, daysMax: null, energyMin: null, poiSup: null, poiSch: null, poiDay: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false, hideHf: false });
   ['#priceMin', '#priceMax', '#rooms', '#areaMin', '#areaMax', '#lotMin', '#floorMin', '#yearMin', '#daysMax', '#energyMin', '#poiSup', '#poiSch', '#poiDay'].forEach(id => $(id).value = '');
   ['#hasBasement', '#hasElevator', '#hasBalcony', '#onlyCut', '#onlyNew', '#hideHf'].forEach(id => $(id).checked = false);
-  S.shown = 60; render();
+  S.shown = collapsedCount(); render();
 }
 function activeFilterCount() {
   let n = 0;
