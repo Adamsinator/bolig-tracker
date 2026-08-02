@@ -40,7 +40,8 @@ UA = {"User-Agent": "bolig-tracker/1.0 (+https://boligtracker.dk)",
       "Accept": "application/json"}
 
 # same corridor and grid geometry as data/noise.json, so the reader is identical
-W, S, E, N = 12.05, 55.58, 12.70, 55.96
+# — Region Hovedstaden minus Bornholm (#24), matches build_data.py's CORRIDOR_BBOX
+W, S, E, N = 11.85, 55.55, 12.70, 56.15
 RES_M = 10.0
 BAND_M = 600.0          # only parcels this close to the shore matter
 STEP_M = 250.0          # spacing of the sample circles along the coastline

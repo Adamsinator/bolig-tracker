@@ -52,8 +52,9 @@ CACHE = os.environ.get("NOISE_CACHE", "/tmp/noise-cache/noise.zip")
 # cache means we never go and look
 KNOWN_URL = "https://files-miljoegis.mim.dk/noise2022/2022_noise_tab.zip"
 
-# corridor: Koebenhavn -> Hilleroed / Frederikssund / the coast (Region Hovedstaden)
-W, S, E, N = 12.05, 55.58, 12.70, 55.96
+# Region Hovedstaden minus Bornholm (#24) — matches build_data.py's CORRIDOR_BBOX
+# (55.55, 11.85, 56.15, 12.70) in s,w,n,e order; here it's W,S,E,N.
+W, S, E, N = 11.85, 55.55, 12.70, 56.15
 # 10 m matches the resolution Miljoestyrelsen models agglomeration noise at, so
 # going finer would invent detail the source does not have. It matters most in
 # dense blocks, where the drop from a 75 dB facade to a shielded courtyard
