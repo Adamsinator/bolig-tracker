@@ -157,8 +157,6 @@ function initUI() {
     renderIndexChart();
   });
   $('#trendMetric').addEventListener('change', renderTrendChart);
-  $('#outlierSide').addEventListener('change', () => renderOutliers(filtered()));
-  $('#changeMode').addEventListener('change', () => renderPriceChanges(filtered()));
 
   // compare two kommuner
   const munis = S.meta.municipalities;
@@ -359,7 +357,6 @@ function render() {
   renderDaysChart(f);
   renderYearChart(f);
   renderScatter(f);
-  renderOutliers(f);
   renderPriceChanges(f);
   renderIndexChart();
   renderTrendChart();
@@ -800,91 +797,31 @@ function renderScatter(f) {
     + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} af ${pts.length.toLocaleString('da-DK')} boliger vises ikke i skyen: dem uden for ${Math.round(xd0)}–${Math.round(xd1)} m² (yderste ~1 % i hver ende af størrelsen) eller uden for ${Math.round(yd0 / 1000)}k–${Math.round(yd1 / 1000)}k kr/m² (yderste ~2 % i hver ende af m²-prisen). De holdes uden for skalaen, så skyen ikke klumper mod akserne — men de tælles stadig med i medianlinjerne og i alle nøgletal ovenfor.` : '')));
 }
 
-/* ============ outliers: robust z-score of kr/m² within kommune + type ============ */
-function outlierRows(f) {
-  const groups = new Map();
-  f.forEach(r => { if (!r.m2p) return; const k = r.muni + '|' + r.t; (groups.get(k) || groups.set(k, []).get(k)).push(r); });
-  const out = [];
-  groups.forEach(rows => {
-    if (rows.length < 8) return;                       // too small to judge
-    const vals = rows.map(r => r.m2p);
-    const med = median(vals);
-    const mad = median(vals.map(v => Math.abs(v - med)));
-    const sigma = 1.4826 * mad;                        // robust ≈ std-dev
-    if (!sigma) return;
-    rows.forEach(r => out.push({ r, z: (r.m2p - med) / sigma, med }));
-  });
-  return out;
-}
-const OUTLIER_Z = 1.5;   // only show homes at least this many robust z-scores off
-function renderOutliers(f) {
-  const box = $('#outliers'); box.innerHTML = '';
-  const side = $('#outlierSide').value;
-  const all = outlierRows(f);
-  // only genuine outliers: past ±1.5 robust z on the requested side
-  const sig = all.filter(o => side === 'low' ? o.z <= -OUTLIER_Z : o.z >= OUTLIER_Z);
-  if (!sig.length) {
-    box.append(el('div', { class: 'loading' }, all.length
-      ? `Ingen boliger afviger mere end ${OUTLIER_Z.toLocaleString('da-DK')} z fra deres områdes m²-pris i det valgte udsnit.`
-      : 'For få boliger i hvert område til at beregne afvigelser.'));
-    return;
-  }
-  const sorted = sig.sort((a, b) => side === 'low' ? a.z - b.z : b.z - a.z).slice(0, 12);
-  const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
-  sorted.forEach(({ r, z, med }) => {
-    const pct = Math.round((r.m2p / med - 1) * 100);
-    const a = el('a', { class: 'ol-row', href: r.url || '#', target: '_blank', rel: 'noopener' });
-    a.append(el('span', { class: 'ol-z ' + (z < 0 ? 'lo' : 'hi') }, (pct > 0 ? '+' : '') + pct + ' %'));
-    a.append(el('span', { class: 'ol-main' },
-      el('b', {}, r.adr),
-      el('small', {}, `${names[r.muni] || r.muni} · ${r.t === 'villa' ? 'villa' : 'ejerlejl.'} · ${dims(r)} · z ${(z > 0 ? '+' : '−') + Math.abs(z).toFixed(1).replace('.', ',')}`)));
-    a.append(el('span', { class: 'ol-num' }, el('b', {}, m2(r.m2p)), el('small', {}, `område: ${m2(med)}`)));
-    a.append(el('span', { class: 'ol-num' }, el('b', {}, krM(r.p)), el('small', {}, `${r.d} dage`)));
-    box.append(a);
-  });
-  box.append(el('p', { class: 'chart-note' },
-    side === 'low'
-      ? `Boliger mindst ${OUTLIER_Z.toLocaleString('da-DK')} robuste z-scores under medianen for samme boligtype i samme kommune (median/MAD). Kan være fund — eller afspejle stand, støj eller stue-/kælderplan.`
-      : `Boliger mindst ${OUTLIER_Z.toLocaleString('da-DK')} robuste z-scores over deres eget område — typisk nybyg, penthouse eller vandudsigt.`));
-}
-
-/* ===== price changes & sold: reduced now (from boligsiden), sold builds up ===== */
+/* ===== sold/removed: listings that vanished from boligsiden — not visible in the
+   card grid at all, since #cards only ever renders the current active listings.
+   (Price-outlier and price-cut rankings used to live here too, but both were
+   just the current listings re-sorted — "fund"/"chg" in the Boliger sort
+   dropdown already show the same homes with the same badges on the cards.) */
 function renderPriceChanges(f) {
   const box = $('#priceChanges'); if (!box) return; box.innerHTML = '';
-  const mode = $('#changeMode').value;
   const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
-  if (mode === 'cut') {
-    const rows = f.filter(r => r.chg < 0).sort((a, b) => a.chg - b.chg).slice(0, 12);
-    if (!rows.length) { box.append(el('div', { class: 'loading' }, 'Ingen prisnedsættelser i det valgte udsnit.')); return; }
-    rows.forEach(r => {
-      const a = el('a', { class: 'ol-row', href: r.url || '#', target: '_blank', rel: 'noopener' });
-      a.append(el('span', { class: 'ol-z lo' }, Math.round(r.chg) + ' %'));
-      a.append(el('span', { class: 'ol-main' }, el('b', {}, r.adr),
-        el('small', {}, `${names[r.muni] || r.muni} · ${r.t === 'villa' ? 'villa' : 'ejerlejl.'} · ${dims(r)}`)));
-      a.append(el('span', { class: 'ol-num' }, el('b', {}, krM(r.p)), el('small', {}, m2(r.m2p))));
-      a.append(el('span', { class: 'ol-num' }, el('b', {}, r.d + ' dage'), el('small', {}, r.near ? '🚆 nær S-tog' : '')));
-      box.append(a);
-    });
-    box.append(el('p', { class: 'chart-note' }, 'Boliger hvis udbudspris er sat ned (fra boligsiden). Vores egen tracker tilføjer datoerne for hver ændring, efterhånden som historikken bygges op.'));
-  } else {
-    if (!S.trackerMap) { box.append(el('div', { class: 'loading' }, 'Henter historik…')); return; }
-    const sel = new Set([...S.munis]);
-    const items = [...S.trackerMap.values()]
-      .filter(it => it.removed && (S.type === 'all' || it.t === S.type) && sel.has(it.muni))
-      .sort((a, b) => a.removed < b.removed ? 1 : -1).slice(0, 12);
-    if (!items.length) { box.append(el('div', { class: 'loading' }, 'Endnu ingen solgte/fjernede boliger registreret — bygges op fra i dag, efterhånden som annoncer forsvinder fra boligsiden.')); return; }
-    items.forEach(it => {
-      const lastP = it.events && it.events.length ? it.events[it.events.length - 1][1] : null;
-      const a = el('a', { class: 'ol-row', href: it.url || '#', target: '_blank', rel: 'noopener' });
-      a.append(el('span', { class: 'ol-z hi' }, 'fjernet'));
-      a.append(el('span', { class: 'ol-main' }, el('b', {}, it.adr || '—'),
-        el('small', {}, `${names[it.muni] || it.muni} · ${it.t === 'villa' ? 'villa' : 'ejerlejl.'}${it.a ? ` · ${it.a} m²` : ''}`)));
-      a.append(el('span', { class: 'ol-num' }, el('b', {}, lastP ? krM(lastP) : '–'), el('small', {}, it.lastD != null ? it.lastD + ' dage' : '')));
-      a.append(el('span', { class: 'ol-num' }, el('b', {}, fmtDay(it.removed)), el('small', {}, 'sidst set ' + fmtDay(it.lastSeen))));
-      box.append(a);
-    });
-    box.append(el('p', { class: 'chart-note' }, 'Boliger der er forsvundet fra boligsiden (solgt eller trukket tilbage), nyeste først — med sidste udbudspris og observeret liggetid.'));
-  }
+  if (!S.trackerMap) { box.append(el('div', { class: 'loading' }, 'Henter historik…')); return; }
+  const sel = new Set([...S.munis]);
+  const items = [...S.trackerMap.values()]
+    .filter(it => it.removed && (S.type === 'all' || it.t === S.type) && sel.has(it.muni))
+    .sort((a, b) => a.removed < b.removed ? 1 : -1).slice(0, 12);
+  if (!items.length) { box.append(el('div', { class: 'loading' }, 'Endnu ingen solgte/fjernede boliger registreret — bygges op fra i dag, efterhånden som annoncer forsvinder fra boligsiden.')); return; }
+  items.forEach(it => {
+    const lastP = it.events && it.events.length ? it.events[it.events.length - 1][1] : null;
+    const a = el('a', { class: 'ol-row', href: it.url || '#', target: '_blank', rel: 'noopener' });
+    a.append(el('span', { class: 'ol-z hi' }, 'fjernet'));
+    a.append(el('span', { class: 'ol-main' }, el('b', {}, it.adr || '—'),
+      el('small', {}, `${names[it.muni] || it.muni} · ${it.t === 'villa' ? 'villa' : 'ejerlejl.'}${it.a ? ` · ${it.a} m²` : ''}`)));
+    a.append(el('span', { class: 'ol-num' }, el('b', {}, lastP ? krM(lastP) : '–'), el('small', {}, it.lastD != null ? it.lastD + ' dage' : '')));
+    a.append(el('span', { class: 'ol-num' }, el('b', {}, fmtDay(it.removed)), el('small', {}, 'sidst set ' + fmtDay(it.lastSeen))));
+    box.append(a);
+  });
+  box.append(el('p', { class: 'chart-note' }, 'Boliger der er forsvundet fra boligsiden (solgt eller trukket tilbage), nyeste først — med sidste udbudspris og observeret liggetid.'));
 }
 
 /* ===================== line chart (shared: DST index + trend) ===================== */

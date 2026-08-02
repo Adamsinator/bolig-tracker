@@ -129,6 +129,32 @@
     <div class="skeleton-tile"></div><div class="skeleton-tile"></div><div class="skeleton-tile"></div><div class="skeleton-tile"></div><div class="skeleton-tile"></div>
   </section>
 
+  <section class="card list-card">
+    <div class="card-head">
+      <h2>Boliger <span id="listCount" class="count"></span></h2>
+      <label class="filter check"><input type="checkbox" id="onlyFav"> <span id="onlyFavLabel">Kun gemte</span></label>
+      <label class="filter">
+        <span>Sortér</span>
+        <select id="sort">
+          <option value="d">Nyeste (liggetid)</option>
+          <option value="m2p">Pris pr. m² (lav→høj)</option>
+          <option value="m2p_desc">Pris pr. m² (høj→lav)</option>
+          <option value="p">Pris (lav→høj)</option>
+          <option value="p_desc">Pris (høj→lav)</option>
+          <option value="sst">Nærmest S-tog</option>
+          <option value="chg">Størst prisnedsættelse</option>
+          <option value="value">Under vurdering (model-tilbud)</option>
+          <option value="fund">Mulige fund (billigst for området)</option>
+        </select>
+      </label>
+    </div>
+    <div id="cards" class="cards" aria-busy="true">
+      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+    </div>
+    <button id="loadMore" class="load-more" hidden>Vis flere</button>
+  </section>
+
   <section class="grid">
     <div class="card map-card">
       <div class="card-head">
@@ -254,59 +280,10 @@
 
     <div class="card wide">
       <div class="card-head">
-        <h2>Prisafvigere <span class="src">· afvigelse fra eget områdes m²-pris (robust z-score)</span></h2>
-        <div class="chart-controls">
-          <label>Vis
-            <select id="outlierSide">
-              <option value="low">Billigst pr. m² (mulige fund)</option>
-              <option value="high">Dyrest pr. m²</option>
-            </select>
-          </label>
-        </div>
-      </div>
-      <div id="outliers" class="outliers"></div>
-    </div>
-
-    <div class="card wide">
-      <div class="card-head">
-        <h2>Prisændringer &amp; solgte <span class="src">· i det valgte udsnit</span></h2>
-        <div class="chart-controls">
-          <label>Vis
-            <select id="changeMode">
-              <option value="cut">Nedsatte priser</option>
-              <option value="sold">Solgt / fjernet</option>
-            </select>
-          </label>
-        </div>
+        <h2>Solgte &amp; fjernede boliger <span class="src">· forsvundet fra boligsiden, i det valgte udsnit</span></h2>
       </div>
       <div id="priceChanges" class="outliers"></div>
     </div>
-  </section>
-
-  <section class="card list-card">
-    <div class="card-head">
-      <h2>Boliger <span id="listCount" class="count"></span></h2>
-      <label class="filter check"><input type="checkbox" id="onlyFav"> <span id="onlyFavLabel">Kun gemte</span></label>
-      <label class="filter">
-        <span>Sortér</span>
-        <select id="sort">
-          <option value="d">Nyeste (liggetid)</option>
-          <option value="m2p">Pris pr. m² (lav→høj)</option>
-          <option value="m2p_desc">Pris pr. m² (høj→lav)</option>
-          <option value="p">Pris (lav→høj)</option>
-          <option value="p_desc">Pris (høj→lav)</option>
-          <option value="sst">Nærmest S-tog</option>
-          <option value="chg">Størst prisnedsættelse</option>
-          <option value="value">Under vurdering (model-tilbud)</option>
-          <option value="fund">Mulige fund (billigst for området)</option>
-        </select>
-      </label>
-    </div>
-    <div id="cards" class="cards" aria-busy="true">
-      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
-      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
-    </div>
-    <button id="loadMore" class="load-more" hidden>Vis flere</button>
   </section>
 
   <footer class="foot">
@@ -322,7 +299,7 @@
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="model.js?v=4"></script>
-<script src="app.js?v=63"></script>
+<script src="app.js?v=64"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
