@@ -18,3 +18,6 @@ jobs:
       - run: python3 scripts/probe_bbr_scale.py
         env:
           DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - run: python3 scripts/probe_condo_join.py
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
