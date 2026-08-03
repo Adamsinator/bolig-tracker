@@ -5,7 +5,10 @@ and write two compact files consumed by the static site:
     data/listings.json  – one trimmed record per listing (~0.3 KB each)
     data/meta.json       – generated-at, counts, municipality names, stations
 
-No API key, no auth. Dependency-free (stdlib only) so it runs locally and in CI.
+No API key, no auth needed for the core scrape. Dependency-free (stdlib
+only) so it runs locally and in CI. DATAFORDELER_API is optional — it
+switches kommune boundaries from DAWA to DAGI/v2 (#27, ahead of DAWA's
+sunset); unset or failing, it falls back to DAWA automatically.
 """
 import base64
 import contextlib

@@ -27,6 +27,10 @@ jobs:
 
       - name: Pull listings from boligsiden.dk
         run: python3 scripts/build_data.py
+        env:
+          # kommune boundaries: DAGI/v2 primary, DAWA per-kommune fallback if
+          # unset or the call fails (#27) — never a hard dependency
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
 
       - name: Commit refreshed data
         run: |
