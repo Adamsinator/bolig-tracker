@@ -255,6 +255,10 @@ def trim(case, qtype=None):
         "ssn": strain_only[0],          # nearest S-train station name
         "near": strain_d <= STRAIN_NEAR_M,
         "hf": has_land_encumbrance(case),   # hjemfaldspligt / tilbagekøbsret disclosed
+        # BFE (matrikel) number, boligsiden carries it straight on the listing —
+        # the join key for data/bbr.json (#26). Stripped back off again in
+        # annotate_bbr() once used; not meant to reach the client.
+        "bfe": next((b for b in (addr.get("bfeNumbers") or []) if b), None),
     }
 
 
@@ -1976,6 +1980,62 @@ def annotate_parcel_row(listings, doc):
           f"mapped parcel ({first} in first row to the water)")
 
 
+def _bbr_lookup(doc):
+    """Build a BFE-number -> BBR building-attributes dict from data/bbr.json,
+    a flat [bfe,year,renYear,wallCode,roofCode,heatCode,fuelCode]*N array
+    fetched once by fetch_bbr_once.py (#26). Returns the dict, or None if
+    the file isn't there / doesn't decode."""
+    if not doc or not doc.get("data"):
+        return None
+    try:
+        flat = json.loads(gzip.decompress(base64.b64decode(doc["data"])))
+    except Exception as ex:
+        print(f"  bbr: could not decode ({ex})", file=sys.stderr)
+        return None
+    table = {}
+    for i in range(0, len(flat) - 6, 7):
+        bfe, y, ren, wall, roof, heat, fuel = flat[i:i + 7]
+        table[bfe] = {"y": y or None, "ren": ren or None, "wall": wall or None,
+                       "roof": roof or None, "heat": heat or None, "fuel": fuel or None}
+    print(f"  bbr: {len(table)} buildings loaded")
+    return table
+
+
+def annotate_bbr(listings, doc):
+    """Attach real BBR building attributes (#26) — construction year, last
+    renovation year, and wall/roof/heating codes — to listings whose BFE
+    number resolves to a building record. bfeNumbers comes straight off the
+    boligsiden listing (case.address.bfeNumbers, stashed as r['bfe'] in
+    trim()); nothing here re-derives it.
+
+    wall/roof/heat/fuel are raw BBR kodeliste codes — treated as opaque
+    categories by the model, not decoded to labels. Fail-soft: no bbr.json,
+    or a listing with no BFE / no matching record, just gets no bbr* fields.
+    r['bfe'] is always stripped afterwards — it's a join key, not something
+    the client needs."""
+    table = _bbr_lookup(doc)
+    hit = 0
+    for r in listings:
+        bfe = r.pop("bfe", None)
+        rec = table.get(bfe) if table and bfe is not None else None
+        if not rec:
+            continue
+        if rec["y"]:
+            r["bbrY"] = rec["y"]
+        if rec["ren"]:
+            r["bbrRen"] = rec["ren"]
+        if rec["wall"]:
+            r["bbrWall"] = rec["wall"]
+        if rec["roof"]:
+            r["bbrRoof"] = rec["roof"]
+        if rec["heat"]:
+            r["bbrHeat"] = rec["heat"]
+        if rec["fuel"]:
+            r["bbrFuel"] = rec["fuel"]
+        hit += 1
+    print(f"  bbr: {hit}/{len(listings)} listings matched to a BFE building record")
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(here, "..", "data")
@@ -2071,6 +2131,20 @@ def main():
                 annotate_parcel_row(listings, json.load(f))
         except Exception as ex:
             print(f"  parcel row annotation failed ({ex})", file=sys.stderr)
+
+    # BBR building attributes: another static, one-off artefact
+    # (fetch_bbr_once.py), keyed by BFE number (#26).
+    bbr_path = os.path.join(data_dir, "bbr.json")
+    if os.path.exists(bbr_path):
+        print("Matching addresses against BBR building attributes…")
+        try:
+            with open(bbr_path, encoding="utf-8") as f:
+                annotate_bbr(listings, json.load(f))
+        except Exception as ex:
+            print(f"  bbr annotation failed ({ex})", file=sys.stderr)
+    else:
+        for r in listings:
+            r.pop("bfe", None)
 
     print("Confirming hjemfald/tilbagekøb on cheap outliers…")
     confirm_encumbrance(listings)
