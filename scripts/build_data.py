@@ -296,28 +296,170 @@ def _rdp_ring(points, eps):
     return a[:-1] + b            # drop shared vertex at the join
 
 
+DATAFORDELER_API_KEY = os.environ.get("DATAFORDELER_API", "").strip()
+DAGI = "https://graphql.datafordeler.dk/DAGI/v2"
+
+
+def _utm32n_to_wgs84(easting, northing):
+    """Inverse Transverse Mercator, ETRS89/UTM zone 32N (EPSG:25832) ->
+    geographic lat/lon in degrees. Standard Snyder (1987) footprint-latitude
+    algorithm, GRS80 ellipsoid (ETRS89 and WGS84 agree to <0.1mm here).
+    Verified against DAWA's independently-sourced WGS84 kommune boundary for
+    Hørsholm before this was trusted for all 28 (#27): 0.000000° bbox
+    difference across 3,641 vertices."""
+    a = 6378137.0
+    f = 1 / 298.257222101
+    k0 = 0.9996
+    E0 = 500000.0
+    lon0 = math.radians(9.0)  # zone 32 central meridian
+
+    e2 = f * (2 - f)
+    ep2 = e2 / (1 - e2)
+
+    M = northing / k0
+    mu = M / (a * (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256))
+
+    e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
+    phi1 = (mu
+            + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * math.sin(2 * mu)
+            + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * math.sin(4 * mu)
+            + (151 * e1 ** 3 / 96) * math.sin(6 * mu)
+            + (1097 * e1 ** 4 / 512) * math.sin(8 * mu))
+
+    C1 = ep2 * math.cos(phi1) ** 2
+    T1 = math.tan(phi1) ** 2
+    N1 = a / math.sqrt(1 - e2 * math.sin(phi1) ** 2)
+    R1 = a * (1 - e2) / (1 - e2 * math.sin(phi1) ** 2) ** 1.5
+    D = (easting - E0) / (N1 * k0)
+
+    lat = phi1 - (N1 * math.tan(phi1) / R1) * (
+        D ** 2 / 2
+        - (5 + 3 * T1 + 10 * C1 - 4 * C1 ** 2 - 9 * ep2) * D ** 4 / 24
+        + (61 + 90 * T1 + 298 * C1 + 45 * T1 ** 2 - 252 * ep2 - 3 * C1 ** 2) * D ** 6 / 720
+    )
+    lon = lon0 + (
+        D - (1 + 2 * T1 + C1) * D ** 3 / 6
+        + (5 - 2 * C1 + 28 * T1 - 3 * C1 ** 2 + 8 * ep2 + 24 * T1 ** 2) * D ** 5 / 120
+    ) / math.cos(phi1)
+
+    return math.degrees(lat), math.degrees(lon)
+
+
+def _split_top_level_parens(s):
+    """s is '(a),(b),(c)' with possible nested parens inside a/b/c. Returns
+    the inner contents of each top-level group, parens stripped."""
+    parts, depth, start = [], 0, None
+    for i, ch in enumerate(s):
+        if ch == "(":
+            if depth == 0:
+                start = i + 1
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                parts.append(s[start:i])
+    return parts
+
+
+def _parse_multipolygon_wkt(wkt):
+    """WKT MULTIPOLYGON -> list of polygons, each a list of rings (first is
+    outer), each a list of (x, y) UTM32N tuples.
+
+    Three nesting levels to unwrap: the MULTIPOLYGON's own wrapping parens,
+    then one level per polygon, then one level per ring — each
+    _split_top_level_parens call peels exactly one."""
+    outer = _split_top_level_parens(wkt)
+    if not outer:
+        return []
+    polygons = []
+    for poly_str in _split_top_level_parens(outer[0]):
+        rings = []
+        for ring_str in _split_top_level_parens(poly_str):
+            pts = []
+            for pair in ring_str.split(","):
+                x, y = pair.strip().split(" ")
+                pts.append((float(x), float(y)))
+            rings.append(pts)
+        polygons.append(rings)
+    return polygons
+
+
+def _fetch_boundary_dagi(code):
+    """One kommune's outer ring(s) via DAGI/v2, as WGS84 [lon, lat] point
+    lists. None if the key isn't configured or anything fails — the caller
+    falls back to DAWA (#27: migrating ahead of DAWA's sunset, not because
+    it's down today)."""
+    if not DATAFORDELER_API_KEY:
+        return None
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    q = (f'query {{ DAGI_Kommuneinddeling(first: 1 registreringstid: "{now}" '
+         f'virkningstid: "{now}" where: {{ kommunekode: {{ eq: "{code:04d}" }} }}) '
+         f'{{ nodes {{ geometri {{ wkt }} }} }} }}')
+    body = json.dumps({"query": q}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{DAGI}?apiKey={DATAFORDELER_API_KEY}", data=body,
+        headers={"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = json.load(r)
+        wkt = data["data"]["DAGI_Kommuneinddeling"]["nodes"][0]["geometri"]["wkt"]
+    except Exception:
+        return None
+    try:
+        polygons = _parse_multipolygon_wkt(wkt)
+    except Exception as e:
+        print(f"    DAGI WKT parse failed: {e}", file=sys.stderr)
+        return None
+    outer_rings = []
+    for rings in polygons:
+        if not rings:
+            continue
+        converted = [_utm32n_to_wgs84(x, y) for x, y in rings[0]]  # outer ring only
+        outer_rings.append([[round(lon, 5), round(lat, 5)] for lat, lon in converted])
+    return outer_rings or None
+
+
+def _fetch_boundary_dawa(code):
+    """One kommune's outer ring(s) via DAWA, as WGS84 [lon, lat] point lists.
+    DAWA's own retirement notice (Oct 2026) has slipped before (#26), so this
+    stays as the fallback rather than being deleted outright."""
+    url = f"{DAWA}/kommuner/{code}?format=geojson&srid=4326"
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r:
+            feat = json.load(r)
+    except Exception:
+        return None
+    g = feat.get("geometry") or {}
+    polys = g.get("coordinates") or []
+    if g.get("type") == "Polygon":
+        polys = [polys]
+    outer_rings = []
+    for poly in polys:
+        outer = poly[0] if poly else []
+        if outer:
+            outer_rings.append([[round(x, 5), round(y, 5)] for x, y in outer])
+    return outer_rings or None
+
+
 def fetch_boundaries():
-    """Return {slug: {name, bbox, rings}} from DAWA, simplified for the web."""
+    """Return {slug: {name, bbox, rings}}, simplified for the web. DAGI/v2
+    (Datafordeler) primary, DAWA per-kommune fallback (#27)."""
     EPS = 0.00065          # ~45 m
     MIN_RING_PTS = 6
     MIN_RING_SPAN = 0.004  # drop islets smaller than ~300 m across
     geo = {}
     for slug, (name, code) in MUNICIPALITIES.items():
-        url = f"{DAWA}/kommuner/{code}?format=geojson&srid=4326"
-        try:
-            with urllib.request.urlopen(url, timeout=60) as r:
-                feat = json.load(r)
-        except Exception as e:
-            print(f"    boundary {name} failed: {e}", file=sys.stderr)
+        outer_rings = _fetch_boundary_dagi(code)
+        src = "dagi"
+        if not outer_rings:
+            outer_rings = _fetch_boundary_dawa(code)
+            src = "dawa"
+        if not outer_rings:
+            print(f"    boundary {name} failed (dagi+dawa)", file=sys.stderr)
             continue
-        g = feat.get("geometry") or {}
-        polys = g.get("coordinates") or []
-        if g.get("type") == "Polygon":
-            polys = [polys]
         rings, mnx, mny, mxx, mxy = [], 1e9, 1e9, -1e9, -1e9
-        for poly in polys:
-            outer = poly[0] if poly else []          # outer ring only
-            pts = [[round(x, 5), round(y, 5)] for x, y in outer]
+        for pts in outer_rings:
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
             if not xs:
@@ -333,7 +475,7 @@ def fetch_boundaries():
             geo[slug] = {"name": name, "bbox": [round(mnx, 5), round(mny, 5),
                          round(mxx, 5), round(mxy, 5)], "rings": rings}
             print(f"    boundary {name:16} rings={len(rings)} "
-                  f"pts={sum(len(r) for r in rings)}")
+                  f"pts={sum(len(r) for r in rings)} src={src}")
     return geo
 
 

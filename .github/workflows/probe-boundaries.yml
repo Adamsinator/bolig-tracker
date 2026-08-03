@@ -1,4 +1,4 @@
-name: Verify UTM32N->WGS84 conversion against DAWA (diagnostic, no commit)
+name: Verify fetch_boundaries() against DAGI/v2 (diagnostic, no commit)
 
 on:
   workflow_dispatch: {}
@@ -15,6 +15,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python3 scripts/probe_utm_check.py
+      - run: python3 scripts/test_boundaries_dagi.py
         env:
           DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
