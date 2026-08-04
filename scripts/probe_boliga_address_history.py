@@ -44,6 +44,24 @@ def main():
         n = len(data.get("results", [])) if isinstance(data, dict) else "?"
         print(f"   {param}=Sofievej -> status={status}, results={n}")
 
+    print("\n1b) 'street' looked real (6 results, distinct from the 50-default the others gave). "
+          "Does adding a house-number param narrow it to ONE address? Also: no municipality/type "
+          "filter at all, just street+number — does that alone find the address anywhere?")
+    for extra_params in (
+        {"municipality": 223, "propertyType": 1, "street": "Sofievej", "number": "11"},
+        {"municipality": 223, "propertyType": 1, "street": "Sofievej", "houseNumber": "11"},
+        {"municipality": 223, "propertyType": 1, "street": "Sofievej", "streetNumber": "11"},
+        {"street": "Sofievej", "houseNumber": "11"},
+    ):
+        qs = urllib.parse.urlencode(extra_params)
+        status, data = get(f"{BOLIGA_SOLD}?{qs}")
+        n = len(data.get("results", [])) if isinstance(data, dict) else "?"
+        sample = ""
+        if isinstance(data, dict) and data.get("results"):
+            r0 = data["results"][0]
+            sample = f" | first result address fields: street={r0.get('street')!r} houseNumber={r0.get('houseNumber')!r} floor={r0.get('floor')!r}"
+        print(f"   {extra_params} -> status={status}, results={n}{sample}")
+
     print("\n2) does a dedicated case/address-history endpoint exist under api.boliga.dk?")
     for path in ("api/v2/case/history", "api/v2/address/history", "api/v2/homes/history",
                  "api/v2/sold/address", "api/v2/property/history"):
@@ -51,10 +69,15 @@ def main():
         print(f"   /{path} -> status={status}, body[:150]={str(data)[:150]}")
 
     print("\n3) does the CURRENT-listing search (boligsiden, already used for listings.json) "
-          "return anything address-history-shaped for a specific case? (sanity check on the "
-          "source this app already fetches from, not Boliga)")
-    status, data = get("https://api.boligsiden.dk/search/cases?street=Sofievej&per_page=1")
-    print(f"   boligsiden street= filter -> status={status}, body[:200]={str(data)[:200]}")
+          "genuinely filter by street, or just ignore the param like Boliga's streetName/q/search "
+          "did? Compare against an unfiltered baseline.")
+    status, base = get("https://api.boligsiden.dk/search/cases?per_page=1")
+    base_n = len(base.get("cases", [])) if isinstance(base, dict) else "?"
+    status2, data = get("https://api.boligsiden.dk/search/cases?street=Sofievej&per_page=5")
+    n2 = len(data.get("cases", [])) if isinstance(data, dict) else "?"
+    streets = [c.get("address", {}).get("roadName") for c in data.get("cases", [])] if isinstance(data, dict) else None
+    print(f"   baseline (no filter, per_page=1) -> {base_n} case(s)")
+    print(f"   street=Sofievej (per_page=5) -> status={status2}, {n2} case(s), roadNames={streets}")
 
     print("\ndone")
 
