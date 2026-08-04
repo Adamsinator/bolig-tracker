@@ -207,4 +207,130 @@ function odd(fv) {
   });
 }
 
+/* ===== address-lookup valuation — any address in the region, not just a
+   listing. Reuses the already-fitted model (BT.fairValue's predict()) and
+   the listings already loaded for the charts above; no new data fetch. ===== */
+const haversine_m = (la1, lo1, la2, lo2) => {
+  const R = 6371000, p = Math.PI / 180;
+  const a = 0.5 - Math.cos((la2 - la1) * p) / 2 + Math.cos(la1 * p) * Math.cos(la2 * p) * (1 - Math.cos((lo2 - lo1) * p)) / 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+// Station distance, noise, POI and local-comps are all measured per exact
+// address at build time — there's no equivalent live data for an address
+// that isn't a listing. Rather than fetching/porting a whole separate
+// dataset just for this, borrow those fields from the nearest real listings:
+// municipality from the single nearest one (categorical), everything else
+// averaged over the nearest few. Coarser than a listing's own reading, but
+// still a real local reading rather than the model's single global-median
+// fallback for genuinely missing data.
+function borrowLocationFeatures(listings, lat, lon, k = 8) {
+  const near = listings
+    .map(r => ({ r, d: haversine_m(lat, lon, r.lat, r.lon) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, k);
+  if (!near.length) return {};
+  const avg = key => {
+    const vals = near.map(n => key(n.r)).filter(v => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  const out = { muni: near[0].r.muni, near: near[0].r.near };
+  const sst = avg(r => r.sst); if (sst != null) out.sst = sst;
+  const mst = avg(r => r.mst); if (mst != null) out.mst = mst;
+  const db = avg(r => r.db); if (db != null) out.db = db;
+  const cmpM2 = avg(r => r.cmpM2); if (cmpM2 != null) out.cmpM2 = cmpM2;
+  const poi = {};
+  ['sup', 'sch', 'day'].forEach(k2 => { const v = avg(r => r.poi && r.poi[k2]); if (v != null) poi[k2] = v; });
+  if (Object.keys(poi).length) out.poi = poi;
+  const geo = {};
+  ['mot', 'sea', 'lak', 'grn', 'wat'].forEach(k2 => { const v = avg(r => r.geo && r.geo[k2]); if (v != null) geo[k2] = v; });
+  if (Object.keys(geo).length) out.geo = geo;
+  return out;
+}
+
+function setupLookup() {
+  const input = $('#lkAddr'), sug = $('#lkSug'), go = $('#lkGo'), err = $('#lkError'), result = $('#lkResult');
+  const seg = $('#lkTypeSeg');
+  let items = [], hl = -1, timer, picked = null, lkType = 'villa';
+
+  const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
+  const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
+  const updateGo = () => { go.disabled = !(picked && $('#lkArea').value > 0); };
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    picked = null; updateGo();
+    const q = input.value.trim();
+    if (q.length < 3) { close(); return; }
+    timer = setTimeout(async () => {
+      try {
+        const url = 'https://api.dataforsyningen.dk/adgangsadresser/autocomplete?per_side=6&q=' + encodeURIComponent(q);
+        items = await fetch(url).then(r => r.json());
+        sug.innerHTML = '';
+        items.forEach((it, i) => {
+          const d = el('div', {}, it.tekst);
+          d.addEventListener('mousedown', ev => { ev.preventDefault(); pick(i); });
+          sug.append(d);
+        });
+        sug.classList.toggle('show', items.length > 0);
+      } catch (e) { close(); }
+    }, 220);
+  });
+  input.addEventListener('keydown', e => {
+    if (!sug.classList.contains('show')) return;
+    if (e.key === 'ArrowDown') { hl = Math.min(items.length - 1, hl + 1); mark(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { hl = Math.max(0, hl - 1); mark(); e.preventDefault(); }
+    else if (e.key === 'Enter') { if (hl >= 0) { pick(hl); e.preventDefault(); } }
+    else if (e.key === 'Escape') close();
+  });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  const pick = i => {
+    const it = items[i], a = it.adgangsadresse;
+    input.value = it.tekst;
+    picked = { name: it.tekst, lat: +a.y, lon: +a.x };
+    close(); updateGo();
+  };
+
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    lkType = b.dataset.type;
+    [...seg.children].forEach(c => { c.classList.toggle('active', c === b); c.setAttribute('aria-selected', c === b); });
+    $('#lkFloorField').classList.toggle('lk-hide', lkType !== 'condo');
+    $('#lkLotField').classList.toggle('lk-hide', lkType !== 'villa');
+    $('#lkBsmField').classList.toggle('lk-hide', lkType !== 'villa');
+  });
+  [...seg.children].forEach(c => c.classList.toggle('active', c.dataset.type === lkType));
+  $('#lkFloorField').classList.add('lk-hide');
+
+  $('#lkArea').addEventListener('input', updateGo);
+
+  go.addEventListener('click', () => {
+    err.textContent = ''; result.classList.remove('show');
+    if (!DATA) { err.textContent = 'Data indlæses stadig — prøv igen om lidt.'; return; }
+    if (!picked) { err.textContent = 'Vælg en adresse fra listen.'; return; }
+    const area = +$('#lkArea').value;
+    if (!(area > 0)) { err.textContent = 'Angiv boligareal.'; return; }
+    const fv = BT.fairValue(DATA.listings, DATA.sold);
+    if (!fv.predict) { err.textContent = 'Modellen kunne ikke beregnes (for få boliger i datasættet).'; return; }
+    const loc = borrowLocationFeatures(DATA.listings, picked.lat, picked.lon);
+    const spec = Object.assign({
+      t: lkType, a: area,
+      r: +$('#lkRooms').value || 0,
+      y: +$('#lkYear').value || undefined,
+      e: $('#lkEnergy').value || undefined,
+      fln: lkType === 'condo' ? (+$('#lkFloor').value || 0) : undefined,
+      bsm: lkType === 'villa' ? (+$('#lkBsm').value || 0) : 0,
+      lot: lkType === 'villa' ? (+$('#lkLot').value || 0) : 0,
+    }, loc);
+    const pm2 = fv.predict(spec);
+    if (!pm2) { err.textContent = 'Kunne ikke beregne en vurdering for denne adresse.'; return; }
+    $('#lkPrice').textContent = nf(pm2 * area) + ' kr · ' + m2(pm2);
+    $('#lkBand').textContent = (fv.lo && fv.hi)
+      ? `Sandsynligt spænd: ${nf(pm2 * area * fv.lo)}–${nf(pm2 * area * fv.hi)} kr`
+      : '';
+    result.classList.add('show');
+  });
+}
+setupLookup();
+
 boot();

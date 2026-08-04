@@ -28,6 +28,20 @@
   .mdl-wrap { max-height:420px; overflow:auto; }
   .bar-cell { display:flex; align-items:center; gap:8px; }
   .bar-cell i { display:block; height:9px; border-radius:3px; background:var(--condo); }
+  .lk-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-top:14px; }
+  .lk-field label { font-size:12px; color:var(--ink-2); font-weight:600; display:block; margin-bottom:5px; }
+  .lk-field input, .lk-field select { width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface);
+    border:1px solid var(--border-2); border-radius:8px; padding:8px 10px; }
+  .lk-hide { display:none; }
+  .lk-btn { margin-top:16px; font:inherit; font-weight:600; font-size:14px; color:#fff; background:var(--accent, #1c5cb0);
+    border:none; border-radius:9px; padding:10px 20px; cursor:pointer; }
+  .lk-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .lk-result { margin-top:18px; padding:16px; border-radius:10px; background:var(--surface-2); display:none; }
+  .lk-result.show { display:block; }
+  .lk-result .lk-price { font-size:26px; font-weight:700; color:var(--ink); }
+  .lk-result .lk-band { font-size:13.5px; color:var(--ink-2); margin-top:2px; }
+  .lk-result .lk-caveat { font-size:12.5px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .lk-error { font-size:13.5px; color:var(--muted); margin-top:12px; }
 </style>
 </head>
 <body>
@@ -53,6 +67,35 @@
   </section>
 
   <section class="grid">
+    <div class="card wide">
+      <div class="card-head"><h2>Vurdér en adresse</h2></div>
+      <p class="mdl-note">Skriv en adresse i Region Hovedstaden — den behøver ikke være til salg. Modellen bruger boligens egne oplysninger og de nærmeste udbudte boligers lokale data (station, støj, naboolag) som stedfæstelse.</p>
+      <div class="geo-field">
+        <label>Adresse</label>
+        <div class="geo-input"><input type="text" id="lkAddr" autocomplete="off" placeholder="Adresse…"><div class="geo-sug" id="lkSug"></div></div>
+      </div>
+      <div class="seg" id="lkTypeSeg" role="tablist" aria-label="Boligtype" style="margin-top:14px;">
+        <button type="button" data-type="villa" aria-selected="true">🏡 Villa/rækkehus</button>
+        <button type="button" data-type="condo" aria-selected="false">🏢 Ejerlejlighed</button>
+      </div>
+      <div class="lk-grid">
+        <div class="lk-field"><label>Boligareal (m²)</label><input type="number" id="lkArea" min="10" max="1000" placeholder="fx 120"></div>
+        <div class="lk-field"><label>Værelser</label><input type="number" id="lkRooms" min="1" max="15" placeholder="fx 4"></div>
+        <div class="lk-field"><label>Byggeår</label><input type="number" id="lkYear" min="1700" max="2026" placeholder="fx 1975"></div>
+        <div class="lk-field"><label>Energimærke</label><select id="lkEnergy"><option value="">Ukendt</option><option>a</option><option>b</option><option>c</option><option>d</option><option>e</option><option>f</option><option>g</option></select></div>
+        <div class="lk-field" id="lkFloorField"><label>Etage</label><input type="number" id="lkFloor" min="0" max="30" placeholder="fx 2"></div>
+        <div class="lk-field" id="lkLotField"><label>Grund (m²)</label><input type="number" id="lkLot" min="0" max="20000" placeholder="fx 600"></div>
+        <div class="lk-field" id="lkBsmField"><label>Kælder</label><select id="lkBsm"><option value="0">Nej</option><option value="1">Ja</option></select></div>
+      </div>
+      <button type="button" class="lk-btn" id="lkGo" disabled>Beregn vurdering</button>
+      <p class="lk-error" id="lkError"></p>
+      <div class="lk-result" id="lkResult">
+        <div class="lk-price" id="lkPrice"></div>
+        <div class="lk-band" id="lkBand"></div>
+        <p class="lk-caveat">Estimatet er lige så usikkert som resten af modellen (se “Typisk afvigelse” ovenfor) — og det kender hverken adressens stand, renoveringer eller udsigt. Stedfæstelsen (station, støj, naboolag) er lånt fra de nærmeste udbudte boliger, ikke målt på selve adressen. Brug det som en indikation, ikke en vurdering.</p>
+      </div>
+    </div>
+
     <div class="card wide">
       <div class="card-head"><h2>Sådan skal tallene læses</h2></div>
       <p class="mdl-note" id="readMe"></p>
@@ -122,8 +165,8 @@
 </div>
 
 <div id="tooltip" class="tooltip" hidden></div>
-<script src="model.js?v=4"></script>
-<script src="modelpage.js?v=1"></script>
+<script src="model.js?v=5"></script>
+<script src="modelpage.js?v=2"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

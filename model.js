@@ -144,6 +144,21 @@
       ssr += (y[i] - yh) ** 2; sst += (y[i] - ybar) ** 2;
     });
     out.r2 = sst ? 1 - ssr / sst : null;
+
+    // Reuse the already-fitted model to price a home that isn't a listing at
+    // all — the address-lookup page's use case. feat() only ever reads
+    // descriptive fields off its argument (a, r, y, fln, bsm, lot, e, sst,
+    // near, t, mst, muni, and the optional poi/geo/db/cmpM2 block), never
+    // m2p, so it's already safe to call on a hand-built spec object. The one
+    // hard requirement is a real housing area — everything else degrades to
+    // feat()'s existing defaults/imputed medians, same as a listing missing
+    // that data would.
+    out.predict = spec => {
+      if (!spec || !(spec.a > 0)) return null;
+      const yh = dot(beta, feat(spec));
+      return Number.isFinite(yh) ? Math.round(Math.exp(yh)) : null;
+    };
+
     _fv = out; return out;
   }
 
