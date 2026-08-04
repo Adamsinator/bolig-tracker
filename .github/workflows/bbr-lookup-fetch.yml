@@ -1,0 +1,74 @@
+name: Fetch BBR lookup index for live address picks (one-off)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    # BBR_Bygning across 28 kommuner (~125 min, proven in #26) plus BBR_Enhed
+    # across the same 28 kommuner — real total record count unconfirmed
+    # (København alone exceeded a 3,000-record probe cap), per-page latency
+    # comparable to or faster than the proven BBR_Bygning run. Each stage
+    # checkpoints on its own commit, so an unexpectedly long enheder stage
+    # never costs the already-fetched buildings data.
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Stage 1 — BBR_Bygning (husnummer-keyed)
+        run: python3 scripts/fetch_bbr_lookup_once.py buildings
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit stage 1 cache
+        run: |
+          git add data/bbr_lookup_cache_buildings.json
+          if git diff --cached --quiet; then echo "nothing to commit"; else
+            git commit -m "BBR lookup fetch: buildings cache"
+            for i in 1 2 3 4; do
+              git pull --rebase origin main && git push && break
+              sleep $((2 ** i))
+            done
+          fi
+
+      - name: Stage 2 — BBR_Enhed (adresseIdentificerer-keyed)
+        run: python3 scripts/fetch_bbr_lookup_once.py enheder
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit stage 2 cache
+        run: |
+          git add data/bbr_lookup_cache_enheder.json
+          if git diff --cached --quiet; then echo "nothing to commit"; else
+            git commit -m "BBR lookup fetch: enheder cache"
+            for i in 1 2 3 4; do
+              git pull --rebase origin main && git push && break
+              sleep $((2 ** i))
+            done
+          fi
+
+      - name: Stage 3 — write data/bbr_lookup.json
+        run: python3 scripts/fetch_bbr_lookup_once.py write
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit final data, remove caches
+        run: |
+          git add data/bbr_lookup.json
+          git rm -f data/bbr_lookup_cache_buildings.json data/bbr_lookup_cache_enheder.json
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          git commit -m "Add BBR lookup index for live address picks"
+          for i in 1 2 3 4; do
+            git pull --rebase origin main && git push && exit 0
+            sleep $((2 ** i))
+          done
+          exit 1
