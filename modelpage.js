@@ -255,7 +255,11 @@ function setupLookup() {
 
   const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
   const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
-  const updateGo = () => { go.disabled = !(picked && $('#lkArea').value > 0); };
+  // Only gate the button on the one thing predict() truly can't work without
+  // (a housing area) — NOT on having picked an address. A disabled button
+  // never fires a click at all, which silently swallowed the "no address
+  // picked" case: the error message below existed but could never show.
+  const updateGo = () => { go.disabled = !($('#lkArea').value > 0); };
 
   input.addEventListener('input', () => {
     clearTimeout(timer);
