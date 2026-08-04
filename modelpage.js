@@ -268,7 +268,13 @@ function setupLookup() {
     if (q.length < 3) { close(); return; }
     timer = setTimeout(async () => {
       try {
-        const url = 'https://api.dataforsyningen.dk/adgangsadresser/autocomplete?per_side=6&q=' + encodeURIComponent(q);
+        // adresser (not adgangsadresser) — the access-address endpoint used
+        // elsewhere on the site is building/entrance level only and never
+        // offers individual units (confirmed live: 1 result for "Esthersvej
+        // 45, 2900 Hellerup" vs. 9 unit-level results — kl., st. th/tv,
+        // 1. th/tv, 2. th/tv, 3. th/tv — from this endpoint). Picking the
+        // right unit matters here since floor feeds the model directly.
+        const url = 'https://api.dataforsyningen.dk/adresser/autocomplete?per_side=8&q=' + encodeURIComponent(q);
         items = await fetch(url).then(r => r.json());
         sug.innerHTML = '';
         items.forEach((it, i) => {
@@ -288,23 +294,37 @@ function setupLookup() {
     else if (e.key === 'Escape') close();
   });
   input.addEventListener('blur', () => setTimeout(close, 150));
+
+  const applyType = type => {
+    lkType = type;
+    [...seg.children].forEach(c => { const on = c.dataset.type === type; c.classList.toggle('active', on); c.setAttribute('aria-selected', on); });
+    $('#lkFloorField').classList.toggle('lk-hide', lkType !== 'condo');
+    $('#lkLotField').classList.toggle('lk-hide', lkType !== 'villa');
+    $('#lkBsmField').classList.toggle('lk-hide', lkType !== 'villa');
+  };
+  // "st"/"kl" (stueetage/kælder) aren't plain integers; digits are.
+  const parseEtage = e => e == null ? null : e === 'st' ? 0 : /^\d+$/.test(e) ? +e : null;
+
   const pick = i => {
-    const it = items[i], a = it.adgangsadresse;
+    const it = items[i], a = it.adresse;
     input.value = it.tekst;
     picked = { name: it.tekst, lat: +a.y, lon: +a.x };
+    // a unit-level address (has etage and/or dør) means this is a condo —
+    // switch the toggle and prefill the floor so the user doesn't have to
+    // re-enter what they just picked from the suggestion list.
+    if (a.etage != null || a.dør != null) {
+      applyType('condo');
+      const fl = parseEtage(a.etage);
+      if (fl != null) $('#lkFloor').value = fl;
+    }
     close(); updateGo();
   };
 
   seg.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    lkType = b.dataset.type;
-    [...seg.children].forEach(c => { c.classList.toggle('active', c === b); c.setAttribute('aria-selected', c === b); });
-    $('#lkFloorField').classList.toggle('lk-hide', lkType !== 'condo');
-    $('#lkLotField').classList.toggle('lk-hide', lkType !== 'villa');
-    $('#lkBsmField').classList.toggle('lk-hide', lkType !== 'villa');
+    applyType(b.dataset.type);
   });
-  [...seg.children].forEach(c => c.classList.toggle('active', c.dataset.type === lkType));
-  $('#lkFloorField').classList.add('lk-hide');
+  applyType(lkType);
 
   $('#lkArea').addEventListener('input', updateGo);
 
