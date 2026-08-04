@@ -216,23 +216,26 @@ const haversine_m = (la1, lo1, la2, lo2) => {
   return 2 * R * Math.asin(Math.sqrt(a));
 };
 
+// shared by every gzip+base64 static data file this page lazy-loads —
+// nothing in this codebase decoded gzip client-side before #26's address
+// lookup, so this is the one decoder the rest reuse.
+async function gunzipB64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(stream).text();
+  return JSON.parse(text);
+}
+
 // data/bbr_lookup.json (18 MB) is real building/unit data keyed by the exact
-// address IDs DAWA already gives us (#26 follow-up) — but nothing in this
-// codebase decodes gzip client-side yet, and 18 MB isn't something every
-// model.html visitor should pay for. Fetched and decoded once, lazily, only
-// when the lookup form is actually used, and cached after that.
+// address IDs DAWA already gives us (#26 follow-up) — 18 MB isn't something
+// every model.html visitor should pay for. Fetched and decoded once, lazily,
+// only when the lookup form is actually used, and cached after that.
 let _bbrLookup = null;
 async function loadBbrLookup() {
   if (_bbrLookup) return _bbrLookup;
   const doc = await fetch('data/bbr_lookup.json').then(r => r.json());
-  const gunzipB64 = async b64 => {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    const text = await new Response(stream).text();
-    return JSON.parse(text);
-  };
   const [bFlat, uFlat] = await Promise.all([gunzipB64(doc.buildings), gunzipB64(doc.units)]);
   const buildings = new Map();
   for (let i = 0; i < bFlat.length - 6; i += 7) buildings.set(bFlat[i], bFlat.slice(i + 1, i + 7));
@@ -240,6 +243,44 @@ async function loadBbrLookup() {
   for (let i = 0; i < uFlat.length - 1; i += 2) units.set(uFlat[i], uFlat[i + 1]);
   _bbrLookup = { buildings, units };
   return _bbrLookup;
+}
+
+// data/grundareal.json already exists — fetched earlier this session for
+// comps' lot-size matching (annotate_comps in build_data.py), so this is
+// free reuse, not a new fetch. Same coarse spatial-hash nearest-point
+// lookup as _grundareal_lookup() in build_data.py, ported line-for-line so
+// a client lookup returns exactly what the server-side one would: a flat
+// [lat,lon,logarea]*N array, 0.01°-cell grid, nearest point in a 3x3
+// neighbourhood, decoded back via 2**(logv/scale).
+let _grundareal = null;
+async function loadGrundareal() {
+  if (_grundareal) return _grundareal;
+  const doc = await fetch('data/grundareal.json').then(r => r.json());
+  const flat = await gunzipB64(doc.data);
+  const scale = doc.logScale || 20.0;
+  const CELL = 0.01;
+  const grid = new Map();
+  for (let i = 0; i < flat.length - 2; i += 3) {
+    const la = flat[i], lo = flat[i + 1], logv = flat[i + 2];
+    const key = Math.floor(la / CELL) + ',' + Math.floor(lo / CELL);
+    (grid.get(key) || grid.set(key, []).get(key)).push([la, lo, logv]);
+  }
+  _grundareal = (lat, lon) => {
+    const ci = Math.floor(lat / CELL), cj = Math.floor(lon / CELL);
+    let best = null, bestD = null;
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const pts = grid.get((ci + di) + ',' + (cj + dj));
+        if (!pts) continue;
+        for (const [la, lo, logv] of pts) {
+          const d = (la - lat) ** 2 + (lo - lon) ** 2;
+          if (bestD === null || d < bestD) { bestD = d; best = logv; }
+        }
+      }
+    }
+    return best === null ? null : Math.round(Math.pow(2, best / scale));
+  };
+  return _grundareal;
 }
 
 // Station distance, noise, POI and local-comps are all measured per exact
@@ -353,13 +394,20 @@ function setupLookup() {
     // feed directly into real, already-working model features, so they're
     // worth the fetch.
     err.textContent = 'Henter BBR-data…';
-    loadBbrLookup().then(({ buildings, units }) => {
-      err.textContent = '';
+    const bbrDone = loadBbrLookup().then(({ buildings, units }) => {
       const bld = buildings.get(a.adgangsadresseid);
       if (bld && bld[0]) $('#lkYear').value = bld[0];
       const areaM2 = units.get(a.id);
       if (areaM2) { $('#lkArea').value = areaM2; updateGo(); }
-    }).catch(() => { err.textContent = ''; });
+    });
+    // Grundstørrelse: data/grundareal.json already exists (fetched earlier
+    // this session for comps' lot-size matching) — no new fetch, just the
+    // same coordinate the address pick already gave us.
+    const lotDone = loadGrundareal().then(lookup => {
+      const lotM2 = lookup(picked.lat, picked.lon);
+      if (lotM2) $('#lkLot').value = lotM2;
+    });
+    Promise.allSettled([bbrDone, lotDone]).then(() => { err.textContent = ''; });
   };
 
   seg.addEventListener('click', e => {
