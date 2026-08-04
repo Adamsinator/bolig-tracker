@@ -73,6 +73,20 @@ def post_graphql(base, query, tries=5):
                 print(f"    graphql errors: {json.dumps(data['errors'])[:300]}", file=sys.stderr)
                 return None
             return data
+        except urllib.error.HTTPError as ex:
+            # the response body (never the request URL, which carries apiKey)
+            # is where the actual GraphQL/HTTP validation reason lives — an
+            # HTTPError's str() alone is just the status line and hid the
+            # real cause of a run that burned 3+ hours retrying a 400
+            detail = ""
+            try:
+                detail = ex.read().decode("utf-8", "replace")[:500]
+            except Exception:
+                pass
+            if i == tries - 1:
+                print(f"    request failed after {tries} tries: {ex} — {detail}", file=sys.stderr)
+                return None
+            time.sleep(2 * (i + 1))
         except Exception as ex:
             if i == tries - 1:
                 print(f"    request failed after {tries} tries: {ex}", file=sys.stderr)
