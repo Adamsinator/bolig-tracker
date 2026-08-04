@@ -216,6 +216,32 @@ const haversine_m = (la1, lo1, la2, lo2) => {
   return 2 * R * Math.asin(Math.sqrt(a));
 };
 
+// data/bbr_lookup.json (18 MB) is real building/unit data keyed by the exact
+// address IDs DAWA already gives us (#26 follow-up) — but nothing in this
+// codebase decodes gzip client-side yet, and 18 MB isn't something every
+// model.html visitor should pay for. Fetched and decoded once, lazily, only
+// when the lookup form is actually used, and cached after that.
+let _bbrLookup = null;
+async function loadBbrLookup() {
+  if (_bbrLookup) return _bbrLookup;
+  const doc = await fetch('data/bbr_lookup.json').then(r => r.json());
+  const gunzipB64 = async b64 => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const text = await new Response(stream).text();
+    return JSON.parse(text);
+  };
+  const [bFlat, uFlat] = await Promise.all([gunzipB64(doc.buildings), gunzipB64(doc.units)]);
+  const buildings = new Map();
+  for (let i = 0; i < bFlat.length - 6; i += 7) buildings.set(bFlat[i], bFlat.slice(i + 1, i + 7));
+  const units = new Map();
+  for (let i = 0; i < uFlat.length - 1; i += 2) units.set(uFlat[i], uFlat[i + 1]);
+  _bbrLookup = { buildings, units };
+  return _bbrLookup;
+}
+
 // Station distance, noise, POI and local-comps are all measured per exact
 // address at build time — there's no equivalent live data for an address
 // that isn't a listing. Rather than fetching/porting a whole separate
@@ -318,6 +344,22 @@ function setupLookup() {
       if (fl != null) $('#lkFloor').value = fl;
     }
     close(); updateGo();
+
+    // BBR auto-fill (#26 follow-up): real area and year, keyed by exactly
+    // the IDs this pick already carries — no BFE/EBR hop needed. Wall/roof/
+    // heating codes exist in the same file but aren't surfaced: they're
+    // opaque BBR kodeliste numbers with no label mapping, and the earlier
+    // ablation found they don't improve the model anyway. Area and year DO
+    // feed directly into real, already-working model features, so they're
+    // worth the fetch.
+    err.textContent = 'Henter BBR-data…';
+    loadBbrLookup().then(({ buildings, units }) => {
+      err.textContent = '';
+      const bld = buildings.get(a.adgangsadresseid);
+      if (bld && bld[0]) $('#lkYear').value = bld[0];
+      const areaM2 = units.get(a.id);
+      if (areaM2) { $('#lkArea').value = areaM2; updateGo(); }
+    }).catch(() => { err.textContent = ''; });
   };
 
   seg.addEventListener('click', e => {
