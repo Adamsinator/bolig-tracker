@@ -42,6 +42,14 @@
   .lk-result .lk-band { font-size:13.5px; color:var(--ink-2); margin-top:2px; }
   .lk-result .lk-caveat { font-size:12.5px; color:var(--muted); margin-top:10px; line-height:1.5; }
   .lk-error { font-size:13.5px; color:var(--muted); margin-top:12px; }
+  .math-box { font-family:ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:12.5px; line-height:1.8;
+    background:var(--surface-2); border-radius:8px; padding:12px 14px; margin:10px 0; overflow-x:auto; color:var(--ink); }
+  .math-box .c { color:var(--muted); }
+  .feat-table td, .feat-table th { vertical-align:top; }
+  .feat-table td.expr { font-family:ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:12px; white-space:nowrap; }
+  .feat-table td.cond { color:var(--muted); font-size:11.5px; }
+  .mdl-h3 { font-size:13.5px; font-weight:700; color:var(--ink); margin:20px 0 6px; }
+  .mdl-h3:first-child { margin-top:4px; }
 </style>
 </head>
 <body>
@@ -153,6 +161,99 @@
         orientering, haven, eller hvor godt boligen er præsenteret. Det er præcis den slags, der afgør de sidste ti-tyve procent —
         og forklarer hvorfor afvigelsen aldrig kommer ned i nul. Brug tallet som en <em>indikation</em>, ikke som en vurdering:
         det er ikke en ejendomsmæglervurdering, og det er ikke rådgivning.
+      </p>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head"><h2>Modellen i detaljer <span class="src">· for de teknisk nysgerrige</span></h2></div>
+      <p class="mdl-note">
+        Det følgende er den præcise matematik bag afsnittet ovenfor — samme model, ned til hver formel. Koden er i
+        <code>model.js</code>, delt uændret mellem forsiden og denne side.
+      </p>
+
+      <div class="mdl-h3">Målvariabel</div>
+      <p class="mdl-note">
+        Modellen fitter <var>y</var> = ln(kr/m²), ikke prisen direkte — så en afvigelse på 10 % vejer ens for en
+        ejerlejlighed til 3 mio. og en villa til 15 mio., i stedet for at store boliger dominerer fejlmålet.
+      </p>
+
+      <div class="mdl-h3">Features</div>
+      <p class="mdl-note">Hver bolig bliver til en vektor <var>x</var>. Basisdelen er altid med; resten kun når den
+        pågældende datakilde findes i byggets datasæt (alt-eller-intet pr. bygning, ikke pr. bolig).</p>
+      <div class="mdl-wrap">
+      <table class="mdl-table feat-table">
+        <tr><th>Feature</th><th>Formel</th><th>Betingelse</th></tr>
+        <tr><td>Konstant</td><td class="expr">1</td><td class="cond">altid</td></tr>
+        <tr><td>Areal</td><td class="expr">ln(<var>a</var>)</td><td class="cond">altid</td></tr>
+        <tr><td>Areal²</td><td class="expr">ln(<var>a</var>)²</td><td class="cond">altid — fanger ikke-lineær kr/m²-effekt af størrelse</td></tr>
+        <tr><td>Værelser</td><td class="expr"><var>r</var></td><td class="cond">altid, 0 hvis ukendt</td></tr>
+        <tr><td>Værelsesstørrelse</td><td class="expr"><var>a</var> / (40·<var>r</var>)</td><td class="cond">altid, 0 hvis <var>a</var> eller <var>r</var> mangler</td></tr>
+        <tr><td>Byggeår</td><td class="expr">(<var>år</var> − 1970) / 50</td><td class="cond">altid, 1970 (dvs. 0) hvis ukendt</td></tr>
+        <tr><td>Etage</td><td class="expr"><var>etage</var> / 5</td><td class="cond">altid, 0 hvis ukendt</td></tr>
+        <tr><td>Kælder</td><td class="expr">1[kælder &gt; 0]</td><td class="cond">altid</td></tr>
+        <tr><td>Grund</td><td class="expr">ln(<var>grund</var> + 1) / 10</td><td class="cond">altid, 0 hvis ukendt</td></tr>
+        <tr><td>Energimærke</td><td class="expr">rang(<var>e</var>) / 7</td><td class="cond">altid — A=7…G=1, D-niveau (4) hvis ukendt</td></tr>
+        <tr><td>Afstand til S-tog</td><td class="expr">ln(<var>d</var><sub>S-tog</sub> + 1) / 10</td><td class="cond">altid</td></tr>
+        <tr><td>Tæt på S-tog</td><td class="expr">1[nær S-togsstation]</td><td class="cond">altid</td></tr>
+        <tr><td>Boligtype</td><td class="expr">1[villa]</td><td class="cond">altid — ejerlejlighed er basislinjen</td></tr>
+        <tr><td>Afstand til metro</td><td class="expr">ln(<var>d</var><sub>metro</sub> + 1) / 10</td><td class="cond">kun hvis byggets datasæt har metrodata</td></tr>
+        <tr><td>Tæt på metro</td><td class="expr">1[≤ 500 m fra metro]</td><td class="cond">samme betingelse som ovenfor</td></tr>
+        <tr><td>Lokalt benchmark</td><td class="expr">ln(<var>comp</var>) / 12</td><td class="cond">kun hvis realiserede handler findes — se “Lokalt benchmark” nedenfor</td></tr>
+        <tr><td>Afstand til indkøb/skole/institution</td><td class="expr">ln(<var>d</var> + 1) / 10 <span class="c">×3</span></td><td class="cond">kun hvis POI-data findes (#7)</td></tr>
+        <tr><td>Afstand til motorvej/vand/sø/natur</td><td class="expr">ln(<var>d</var> + 1) / 10 <span class="c">×4</span></td><td class="cond">kun hvis geo-data findes (#8)</td></tr>
+        <tr><td>Vandkant-effekt</td><td class="expr">exp(−<var>d</var><sub>kyst</sub> / 150)</td><td class="cond">samme betingelse — et fald over ~150 m, ikke en lige linje: forskellen på første og anden række til vandet er et spring, ikke en gradient</td></tr>
+        <tr><td>Vandkant × villa</td><td class="expr">exp(−<var>d</var><sub>kyst</sub> / 150) · 1[villa]</td><td class="cond">samme — en villa med have til vandet er mere værd end en lejlighed med udsigt</td></tr>
+        <tr><td>Trafikstøj</td><td class="expr">(<var>dB</var> − 55) / 10</td><td class="cond">kun hvis støjdata findes — se forbeholdet ovenfor</td></tr>
+        <tr><td>Kommune</td><td class="expr">1[kommune = <var>k</var>] <span class="c">× (antal kommuner − 1)</span></td><td class="cond">altid — én kommune er basislinjen, for ikke at kollidere med konstanten</td></tr>
+      </table>
+      </div>
+      <p class="mdl-note">
+        <strong>Lokalt benchmark</strong> er ikke en rå gennemsnitspris i området: hvert salg er tidsjusteret til i dag med
+        korridorens eget kvartalsindeks, matchet på boligtype, størrelse og byggeår, og de nærmeste salg vægtes efter
+        afstand frem for en hård radius — så et tyndt datagrundlag falder gradvist tilbage på kommune-/typemedianen i
+        stedet for at springe til en 2 km-median.
+      </p>
+
+      <div class="mdl-h3">Ridge-regression</div>
+      <div class="math-box">
+β̂ = argmin<sub>β</sub>  Σᵢ (yᵢ − xᵢ·β)²  +  λ Σⱼ₌₁ βⱼ²<br>
+<span class="c">// løses som de normale ligninger, ikke ved iterativ optimering:</span><br>
+(XᵀX + λI) β = Xᵀy,  λ = 1<br>
+<span class="c">// I er identitetsmatricen med et 0 i første celle — konstantledet straffes ikke</span>
+      </div>
+      <p class="mdl-note">
+        Løses direkte ved Gauss-elimination med delvis pivotering (partial pivoting), ikke gradient descent —
+        designmatricen er lille nok (typisk 15–55 kolonner) til at det er både hurtigere og eksakt. Ridge-leddet
+        <var>λ</var>Σβⱼ² trækker koefficienterne mod 0, så en enkelt, tyndt repræsenteret feature ikke kan få et
+        vilkårligt stort udslag på et lille datagrundlag.
+      </p>
+
+      <div class="mdl-h3">Krydsvalidering — den ærlige træfsikkerhed</div>
+      <p class="mdl-note">
+        Boligerne deles i 5 lige store, faste grupper (bolig <var>i</var> havner i gruppe <var>i</var> mod 5). For hver
+        gruppe trænes modellen <em>uden</em> den gruppe og forudsiger så netop de udeladte boliger — en bolig er
+        derfor aldrig med til at forudsige sig selv. “Typisk afvigelse” er medianen af |exp(residual) − 1| på tværs af
+        alle fem grupper; usikkerhedsspændet er 10. og 90. percentil af de samme residualer. Forklaringsgraden
+        (R²) nedenfor er <em>ikke</em> beregnet krydsvalideret — se forbeholdet nederst.
+      </p>
+
+      <div class="mdl-h3">Robust genberegning</div>
+      <p class="mdl-note">
+        Modellen fittes først på alle boliger; residualerne <var>y</var> − <var>Xβ</var>₀ giver en median
+        <var>m</var>₀ og en MAD (median absolut afvigelse fra medianen). Enhver bolig med
+        |residual − <var>m</var>₀| &gt; 3 · 1,4826 · MAD udelades (faktoren 1,4826 skalerer MAD til at svare til én
+        standardafvigelse under en normalfordeling), og modellen genberegnes på resten. Det er præcis de boliger, der
+        vises i “Boliger modellen holder udenfor” ovenfor.
+      </p>
+
+      <div class="mdl-h3">Om R² — en vigtig forskel</div>
+      <p class="mdl-note">
+        R² beregnes på det <em>endelige</em>, robuste fit — altså hvor godt modellen rammer boliger, den selv har
+        trænet på, ikke nye boliger den ikke har set. Det er derfor et andet tal end “typisk afvigelse” (som er
+        krydsvalideret) og kan ikke bruges som et mål for reel træfsikkerhed alene. Flere features vil næsten altid
+        løfte R² lidt, selv når de reelt intet bidrager med — jo flere frihedsgrader, jo bedre kan modellen tilpasse
+        sig data den allerede kender. Det er præcis derfor krydsvalideret “typisk afvigelse”, ikke R², er det tal der
+        afgør om en ny feature bliver i modellen eller fjernes igen.
       </p>
     </div>
   </section>

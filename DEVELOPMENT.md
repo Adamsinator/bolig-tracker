@@ -25,11 +25,24 @@ python3 scripts/build_data.py
 | Path | What |
 |---|---|
 | `index.html` / `styles.css` / `app.js` | the whole front-end, no framework |
+| `model.js` | hedonic fair-value model — shared by `index.html` and `model.html`, exports `window.BT` |
+| `model.html` / `modelpage.js` | model accuracy dashboard + the address-lookup valuation page |
 | `vendor/leaflet/` | Leaflet 1.9.4, vendored on purpose (no JS CDN) |
 | `scripts/build_data.py` | the entire data pipeline |
 | `scripts/stations.py` | rail station coords + line ordering |
 | `.github/workflows/build.yml` | daily cron that runs the pipeline and commits `data/` |
 | `data/*.json` | generated — committed so the site works with zero backend |
+
+## Model
+
+`model.js`'s `fairValue()` is a ridge-regularised hedonic regression on
+log(kr/m²) — the exact feature list, the ridge/CV/robust-refit math, and why
+R² and the reported "typisk afvigelse" are different numbers, is documented
+in full at the bottom of `model.html` ("Modellen i detaljer"), not
+duplicated here to avoid the two drifting apart. `fairValue(listings, sold)`
+also exposes `.predict(spec)` — call it with a hand-built `{t, a, r, y, ...}`
+object (no `m2p` needed) to price something that isn't a listing at all;
+that's what the address-lookup page uses.
 
 ## Data sources
 
