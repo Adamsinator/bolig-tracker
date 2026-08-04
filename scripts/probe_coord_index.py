@@ -80,6 +80,24 @@ def main():
     data = post_graphql(DAR, q)
     print(f"  DAR_Husnummer: {json.dumps(data)[:400]}")
 
+    print("\n4) DAR_Husnummer exists (confirmed above) — the REST /husnummer "
+          "sample showed a rich object (husnummerretning, jordstykke, "
+          "kommuneinddeling...) but coordinates may live in a separate "
+          "adgangspunkt entity per the official DAR data model. Check both.")
+    for f in ("wgs84koordinat", "etrs89koordinat", "koordinat", "geometri",
+              "adgangspunkt", "adgangspunktid", "husnummerretning", "x", "y"):
+        try_field(DAR, "DAR_Husnummer", f)
+
+    print("\n5) does a separate DAR_Adgangspunkt entity exist at the top level, "
+          "and does it carry coordinates?")
+    q = (f'query {{ DAR_Adgangspunkt(first: 1 registreringstid: "{now}" '
+         f'virkningstid: "{now}") {{ nodes {{ id_lokalId }} }} }}')
+    data = post_graphql(DAR, q)
+    print(f"  DAR_Adgangspunkt: {json.dumps(data)[:400]}")
+    if data.get("data", {}).get("DAR_Adgangspunkt") is not None:
+        for f in ("wgs84koordinat", "etrs89koordinat", "koordinat", "geometri", "x", "y", "position"):
+            try_field(DAR, "DAR_Adgangspunkt", f)
+
     print("\ndone")
 
 
