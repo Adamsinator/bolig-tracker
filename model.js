@@ -64,30 +64,6 @@
     const hasNoise = rows.some(r => r.db != null);
     const medDb = hasNoise ? (median(rows.map(r => r.db).filter(v => v != null)) || 55) : 55;
     const dbOf = r => (r.db != null ? r.db : medDb);
-    // BBR building attributes (issue #26): construction year, renovation
-    // recency, and wall/roof/heating-system category from Datafordeler's
-    // building register, joined by BFE number. Only a home whose BFE
-    // resolved gets these — everyone else contributes an all-zero block,
-    // same all-or-nothing gating as the metro flag above. Renovation year
-    // is filled on just ~13% of matched buildings even when the BFE
-    // resolves, so it's a flag (renovated at all) plus a magnitude (years
-    // since), zero for the unrenovated majority rather than imputed.
-    // wall/roof/heat/fuel are opaque BBR kodeliste codes (not ordinal), so
-    // they're one-hot over each field's most common codes in this build,
-    // not used as a raw number — the least common codes fall into the
-    // implicit "other/unknown" bucket, same convention as municipality
-    // one-hot dropping its first category.
-    const hasBbr = rows.some(r => r.bbrY != null);
-    const CUR_YEAR = new Date().getFullYear();
-    const topCodes = (key, n) => {
-      const counts = new Map();
-      rows.forEach(r => { if (r[key]) counts.set(r[key], (counts.get(r[key]) || 0) + 1); });
-      return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(e => e[0]);
-    };
-    const wallCodes = hasBbr ? topCodes('bbrWall', 6) : [];
-    const roofCodes = hasBbr ? topCodes('bbrRoof', 6) : [];
-    const heatCodes = hasBbr ? topCodes('bbrHeat', 6) : [];
-    const fuelCodes = hasBbr ? topCodes('bbrFuel', 6) : [];
     const feat = r => {
       const la = Math.log(r.a);
       const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
@@ -102,14 +78,6 @@
         f.push(seaNear(r), seaNear(r) * (r.t === 'villa' ? 1 : 0));
       }
       if (hasNoise) f.push((dbOf(r) - 55) / 10);
-      if (hasBbr) {
-        f.push(r.bbrY ? (r.bbrY - 1970) / 50 : 0, r.bbrY ? 1 : 0);
-        f.push(r.bbrRen ? 1 : 0, r.bbrRen ? (CUR_YEAR - r.bbrRen) / 50 : 0);
-        wallCodes.forEach(c => f.push(r.bbrWall === c ? 1 : 0));
-        roofCodes.forEach(c => f.push(r.bbrRoof === c ? 1 : 0));
-        heatCodes.forEach(c => f.push(r.bbrHeat === c ? 1 : 0));
-        fuelCodes.forEach(c => f.push(r.bbrFuel === c ? 1 : 0));
-      }
       for (let i = 1; i < munis.length; i++) f.push(r.muni === munis[i] ? 1 : 0);
       return f;
     };
