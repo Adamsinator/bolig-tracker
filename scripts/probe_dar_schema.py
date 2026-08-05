@@ -1,40 +1,50 @@
 #!/usr/bin/env python3
-"""Diagnostic-only, for issue #28. Adressevaelger (the official DAWA
-replacement) turned out to have real gaps when tested live: no coordinates,
-no unit/floor-level breakdown in its /soeg results. Rather than keep
-depending on a third-party live API at all, the plan is now to fetch the
-full DAR address register ourselves (street names, house numbers,
-coordinates, floor/door labels) via Datafordeler — the same server-side
-DATAFORDELER_API key already used for BBR_Bygning/BBR_Enhed in
-fetch_bbr_lookup_once.py — and ship it as a static file like bbr_lookup.json.
+"""Round 2, issue #28. Round 1 established two things: introspection
+(__type) is disabled server-side ("Introspection is not allowed for the
+current request"), and the real type is `DAR_HusnummerConnection` — a
+Relay-style paginated connection, same shape as BBR_Bygning/BBR_Enhed in
+fetch_bbr_lookup_once.py (`nodes { ... }`, not a flat field list). My first
+guessed field names were rejected because they were missing that wrapper,
+not necessarily because the names themselves were wrong.
 
-This checks the exact field names before writing that fetch, so we don't
-repeat the #26 mistake of assuming a field/limit and burning hours finding
-out it's wrong. Specifically:
-  - DAR_Husnummer: does it exist, what are its house-number-text and
-    coordinate (x/y) field names, does kommunekode filtering work on it
-    (confirmed working on BBR_Enhed already), and how does it link to
-    DAR_NavngivenVej (street name)?
-  - DAR_Adresse: what are the floor ("etage") and door ("dør") label field
-    names, and how does it link to its parent DAR_Husnummer?
+Datafordeler's own doc pages (datafordeler.dk/dataoversigt/... and
+confluence.sdfi.dk) all 403 to anonymous fetches, same as Adressevaelger's
+docs did. But DAR is a standard, publicly-referenced Danish gov data model
+(unlike Adressevaelger's brand-new integration guide) — WebSearch surfaced
+real field names from public snippets/gists rather than gated pages:
+  - DAR_Husnummer: id_lokalId, husnummertekst, adgangspunkt (a relation to
+    DAR_Adressepunkt), adgangsadressebetegnelse
+  - DAR_Adressepunkt: position (WKT POINT, CRS 25832 / UTM zone 32N — NOT
+    WGS84 lat/lon, needs reprojecting)
+  - DAR_Adresse: id_lokalId, etagebetegnelse, doerbetegnelse, and a
+    "husnummer" link field (this one already confirmed live earlier this
+    session, not from search)
+  - proven where/pagination shape (from fetch_bbr_lookup_once.py, already
+    working at scale): `Entity(first: N after: "cursor" where: {...}
+    registreringstid: "..." virkningstid: "...") { pageInfo {...} nodes
+    {...} }`
+
+This verifies those specific field names live, using the proven query
+shape, before writing the real multi-hour fetch — so a wrong guess costs
+one fast round-trip instead of hours.
 
 Deleted once its findings are captured, per this repo's probe convention.
 """
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
 API_KEY = os.environ["DATAFORDELER_API"]
 UA = {"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tracker)"}
-# confirmed via git history of this session's earlier (deleted) DAR probes —
-# do not guess a different path/version.
 DAR = "https://graphql.datafordeler.dk/DAR/v3"
+NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def post_graphql(query, variables=None):
-    body = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+def post_graphql(query):
+    body = json.dumps({"query": query}).encode("utf-8")
     req = urllib.request.Request(f"{DAR}?apiKey={API_KEY}", data=body,
                                   headers={**UA, "Content-Type": "application/json"})
     try:
@@ -46,65 +56,54 @@ def post_graphql(query, variables=None):
             body_txt = ex.read().decode("utf-8", "replace")[:2000]
         except Exception:
             pass
-        print(f"  HTTP {ex.code} error body: {body_txt}", file=sys.stderr)
-        return ex.code, None
+        return ex.code, {"httpError": body_txt}
 
 
-def introspect_type(type_name):
-    q = """
-    query($t: String!) {
-      __type(name: $t) {
-        name
-        fields { name type { name kind ofType { name kind } } }
-      }
-    }
-    """
-    status, data = post_graphql(q, {"t": type_name})
+def run(label, query):
+    print(f"{label}")
+    status, data = post_graphql(query)
     print(f"  status={status}")
-    if not data:
-        print("  no data")
-        return
-    if data.get("errors"):
-        print(f"  errors={data['errors']}")
-    t = (data.get("data") or {}).get("__type")
-    if not t:
-        print(f"  __type({type_name}) -> null (does not exist)")
-        return
-    print(f"  {type_name} fields:")
-    for f in t.get("fields") or []:
-        tt = f["type"]
-        tn = tt.get("name") or (tt.get("ofType") or {}).get("name")
-        print(f"    {f['name']}: {tn}")
+    print(f"  {json.dumps(data, ensure_ascii=False, indent=2)[:2500]}")
+    print()
 
 
 def main():
-    print("1) DAR_Husnummer schema")
-    introspect_type("DAR_Husnummer")
+    run("1) DAR_Husnummer: id_lokalId, husnummertekst, adgangsadressebetegnelse, "
+        "kommunekode, postnummer, navngivenVej, plus adgangspunkt -> position (nested relation)",
+        f"""{{ DAR_Husnummer(first: 3, where: {{ kommunekode: {{ eq: "0223" }} }}
+              registreringstid: "{NOW}" virkningstid: "{NOW}") {{
+          pageInfo {{ hasNextPage endCursor }}
+          nodes {{
+            id_lokalId
+            husnummertekst
+            adgangsadressebetegnelse
+            kommunekode
+            postnummer
+            navngivenVej
+            adgangspunkt {{ position }}
+          }}
+        }} }}""")
 
-    print("\n2) DAR_Adresse schema")
-    introspect_type("DAR_Adresse")
+    run("2) DAR_Adresse: id_lokalId, etagebetegnelse, doerbetegnelse, husnummer link",
+        f"""{{ DAR_Adresse(first: 3, where: {{ kommunekode: {{ eq: "0223" }} }}
+              registreringstid: "{NOW}" virkningstid: "{NOW}") {{
+          pageInfo {{ hasNextPage endCursor }}
+          nodes {{
+            id_lokalId
+            etagebetegnelse
+            doerbetegnelse
+            husnummer
+          }}
+        }} }}""")
 
-    print("\n3) DAR_NavngivenVej schema (already confirmed to exist earlier this session — "
-          "re-checking fields for completeness)")
-    introspect_type("DAR_NavngivenVej")
+    run("3) DAR_NavngivenVej: vejnavn (already confirmed working earlier this session)",
+        f"""{{ DAR_NavngivenVej(first: 3, where: {{ kommunekode: {{ eq: "0223" }} }}
+              registreringstid: "{NOW}" virkningstid: "{NOW}") {{
+          pageInfo {{ hasNextPage endCursor }}
+          nodes {{ id_lokalId vejnavn }}
+        }} }}""")
 
-    print("\n4) a real, small live query: 5 DAR_Husnummer rows for kommunekode 223 (Hørsholm), "
-          "whatever fields look most promising from the introspection above")
-    q = """
-    { DAR_Husnummer(kommunekode: ["223"], size: 5) {
-        id_lokalId
-        husnummertekst
-        adgangspunkt_x
-        adgangspunkt_y
-        postnr
-        vejnavn
-    } }
-    """
-    status, data = post_graphql(q)
-    print(f"   status={status}")
-    print(f"   {json.dumps(data, ensure_ascii=False, indent=2)[:1500] if data else 'no data'}")
-
-    print("\ndone")
+    print("done")
 
 
 if __name__ == "__main__":
