@@ -20,7 +20,8 @@ const kr = v => v == null ? '–' : Math.round(v).toLocaleString('da-DK') + ' kr
 // grouped-number inputs: read digits only, keep the field showing 600.000 etc.
 const numVal = id => { const e = $(id); return e ? (+String(e.value).replace(/\D/g, '') || 0) : 0; };
 function wireNumInput(id, onChange) {
-  const e = $(id); if (!e) return;
+  const e = $(id); if (!e || e.dataset.wired) return;
+  e.dataset.wired = '1';
   const fmt = () => { const n = String(e.value).replace(/\D/g, ''); e.value = n ? (+n).toLocaleString('da-DK') : ''; };
   fmt();  // format the initial value
   e.addEventListener('input', () => { fmt(); onChange(); });

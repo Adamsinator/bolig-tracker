@@ -203,9 +203,10 @@ function initUI() {
 
 function resetFilters() {
   Object.assign(S, { priceMin: null, priceMax: null, rooms: null, areaMin: null, areaMax: null, lotMin: null,
-    floorMin: null, yearMin: null, daysMax: null, energyMin: null, poiSup: null, poiSch: null, poiDay: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false, hideHf: false });
+    floorMin: null, yearMin: null, daysMax: null, energyMin: null, poiSup: null, poiSch: null, poiDay: null, hasBasement: false, hasElevator: false, hasBalcony: false, onlyCut: false, onlyNew: false, hideHf: false, nearTransit: null });
   ['#priceMin', '#priceMax', '#rooms', '#areaMin', '#areaMax', '#lotMin', '#floorMin', '#yearMin', '#daysMax', '#energyMin', '#poiSup', '#poiSch', '#poiDay'].forEach(id => $(id).value = '');
   ['#hasBasement', '#hasElevator', '#hasBalcony', '#onlyCut', '#onlyNew', '#hideHf'].forEach(id => $(id).checked = false);
+  const nt = $('#nearTransit'); if (nt) nt.value = '';
   S.shown = collapsedCount(); render();
 }
 function activeFilterCount() {

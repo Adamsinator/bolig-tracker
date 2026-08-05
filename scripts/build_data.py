@@ -1267,7 +1267,7 @@ def confirm_encumbrance(listings):
 
 
 def annotate_metro(listings, transit):
-    """Add nearest-metro distance (mst) and a combined near-rail flag.
+    """Add nearest-metro distance (mst).
 
     mst is measured against genuine Metro (subway) stations only. OSM's
     light_rail tagging around Copenhagen is unreliable — it mislabels many
@@ -1276,13 +1276,10 @@ def annotate_metro(listings, transit):
     along on the map overlay; it just doesn't drive the pricing signal."""
     pts = [(st["lat"], st["lon"]) for st in (transit or {}).get("stations", [])
            if st.get("mode") == "metro"]
+    if not pts:
+        return
     for r in listings:
-        if pts:
-            best = min(haversine_m(r["lat"], r["lon"], la, lo) for la, lo in pts)
-            r["mst"] = round(best)
-            r["nearRail"] = bool(r.get("near")) or best <= STRAIN_NEAR_M
-        else:
-            r["nearRail"] = bool(r.get("near"))
+        r["mst"] = round(min(haversine_m(r["lat"], r["lon"], la, lo) for la, lo in pts))
 
 
 def merge_transit(new, prev):
@@ -2002,17 +1999,19 @@ def _bbr_lookup(doc):
 
 
 def annotate_bbr(listings, doc):
-    """Attach real BBR building attributes (#26) — construction year, last
-    renovation year, and wall/roof/heating codes — to listings whose BFE
-    number resolves to a building record. bfeNumbers comes straight off the
-    boligsiden listing (case.address.bfeNumbers, stashed as r['bfe'] in
-    trim()); nothing here re-derives it.
+    """Attach real BBR building attributes (#26) — wall/roof/heating codes —
+    to listings whose BFE number resolves to a building record. bfeNumbers
+    comes straight off the boligsiden listing (case.address.bfeNumbers,
+    stashed as r['bfe'] in trim()); nothing here re-derives it.
 
     wall/roof/heat/fuel are raw BBR kodeliste codes — treated as opaque
-    categories by the model, not decoded to labels. Fail-soft: no bbr.json,
-    or a listing with no BFE / no matching record, just gets no bbr* fields.
-    r['bfe'] is always stripped afterwards — it's a join key, not something
-    the client needs."""
+    categories by the model, not decoded to labels. Construction year and
+    renovation year (rec["y"]/rec["ren"]) are deliberately NOT attached here:
+    an ablation found they don't move cross-validated accuracy, and nothing
+    front-end reads them either, so shipping them would just be wasted
+    per-listing payload. Fail-soft: no bbr.json, or a listing with no BFE /
+    no matching record, just gets no bbr* fields. r['bfe'] is always
+    stripped afterwards — it's a join key, not something the client needs."""
     table = _bbr_lookup(doc)
     hit = 0
     for r in listings:
@@ -2020,10 +2019,6 @@ def annotate_bbr(listings, doc):
         rec = table.get(bfe) if table and bfe is not None else None
         if not rec:
             continue
-        if rec["y"]:
-            r["bbrY"] = rec["y"]
-        if rec["ren"]:
-            r["bbrRen"] = rec["ren"]
         if rec["wall"]:
             r["bbrWall"] = rec["wall"]
         if rec["roof"]:

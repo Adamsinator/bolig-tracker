@@ -232,17 +232,22 @@ async function gunzipB64(b64) {
 // address IDs DAWA already gives us (#26 follow-up) — 18 MB isn't something
 // every model.html visitor should pay for. Fetched and decoded once, lazily,
 // only when the lookup form is actually used, and cached after that.
-let _bbrLookup = null;
-async function loadBbrLookup() {
-  if (_bbrLookup) return _bbrLookup;
-  const doc = await fetch('data/bbr_lookup.json').then(r => r.json());
-  const [bFlat, uFlat] = await Promise.all([gunzipB64(doc.buildings), gunzipB64(doc.units)]);
-  const buildings = new Map();
-  for (let i = 0; i < bFlat.length - 6; i += 7) buildings.set(bFlat[i], bFlat.slice(i + 1, i + 7));
-  const units = new Map();
-  for (let i = 0; i < uFlat.length - 1; i += 2) units.set(uFlat[i], uFlat[i + 1]);
-  _bbrLookup = { buildings, units };
-  return _bbrLookup;
+// Cache the in-flight *promise*, not just the resolved value — otherwise two
+// picks made back-to-back before the first ~18 MB fetch/decode finishes each
+// start an independent fetch instead of sharing the one already running.
+let _bbrLookupPromise = null;
+function loadBbrLookup() {
+  if (_bbrLookupPromise) return _bbrLookupPromise;
+  _bbrLookupPromise = (async () => {
+    const doc = await fetch('data/bbr_lookup.json').then(r => r.json());
+    const [bFlat, uFlat] = await Promise.all([gunzipB64(doc.buildings), gunzipB64(doc.units)]);
+    const buildings = new Map();
+    for (let i = 0; i < bFlat.length - 6; i += 7) buildings.set(bFlat[i], bFlat.slice(i + 1, i + 7));
+    const units = new Map();
+    for (let i = 0; i < uFlat.length - 1; i += 2) units.set(uFlat[i], uFlat[i + 1]);
+    return { buildings, units };
+  })();
+  return _bbrLookupPromise;
 }
 
 // data/grundareal.json already exists — fetched earlier this session for
@@ -252,35 +257,38 @@ async function loadBbrLookup() {
 // a client lookup returns exactly what the server-side one would: a flat
 // [lat,lon,logarea]*N array, 0.01°-cell grid, nearest point in a 3x3
 // neighbourhood, decoded back via 2**(logv/scale).
-let _grundareal = null;
-async function loadGrundareal() {
-  if (_grundareal) return _grundareal;
-  const doc = await fetch('data/grundareal.json').then(r => r.json());
-  const flat = await gunzipB64(doc.data);
-  const scale = doc.logScale || 20.0;
-  const CELL = 0.01;
-  const grid = new Map();
-  for (let i = 0; i < flat.length - 2; i += 3) {
-    const la = flat[i], lo = flat[i + 1], logv = flat[i + 2];
-    const key = Math.floor(la / CELL) + ',' + Math.floor(lo / CELL);
-    (grid.get(key) || grid.set(key, []).get(key)).push([la, lo, logv]);
-  }
-  _grundareal = (lat, lon) => {
-    const ci = Math.floor(lat / CELL), cj = Math.floor(lon / CELL);
-    let best = null, bestD = null;
-    for (let di = -1; di <= 1; di++) {
-      for (let dj = -1; dj <= 1; dj++) {
-        const pts = grid.get((ci + di) + ',' + (cj + dj));
-        if (!pts) continue;
-        for (const [la, lo, logv] of pts) {
-          const d = (la - lat) ** 2 + (lo - lon) ** 2;
-          if (bestD === null || d < bestD) { bestD = d; best = logv; }
+// Same in-flight-promise caching as loadBbrLookup(), and for the same reason.
+let _grundarealPromise = null;
+function loadGrundareal() {
+  if (_grundarealPromise) return _grundarealPromise;
+  _grundarealPromise = (async () => {
+    const doc = await fetch('data/grundareal.json').then(r => r.json());
+    const flat = await gunzipB64(doc.data);
+    const scale = doc.logScale || 20.0;
+    const CELL = 0.01;
+    const grid = new Map();
+    for (let i = 0; i < flat.length - 2; i += 3) {
+      const la = flat[i], lo = flat[i + 1], logv = flat[i + 2];
+      const key = Math.floor(la / CELL) + ',' + Math.floor(lo / CELL);
+      (grid.get(key) || grid.set(key, []).get(key)).push([la, lo, logv]);
+    }
+    return (lat, lon) => {
+      const ci = Math.floor(lat / CELL), cj = Math.floor(lon / CELL);
+      let best = null, bestD = null;
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const pts = grid.get((ci + di) + ',' + (cj + dj));
+          if (!pts) continue;
+          for (const [la, lo, logv] of pts) {
+            const d = (la - lat) ** 2 + (lo - lon) ** 2;
+            if (bestD === null || d < bestD) { bestD = d; best = logv; }
+          }
         }
       }
-    }
-    return best === null ? null : Math.round(Math.pow(2, best / scale));
-  };
-  return _grundareal;
+      return best === null ? null : Math.round(Math.pow(2, best / scale));
+    };
+  })();
+  return _grundarealPromise;
 }
 
 // Station distance, noise, POI and local-comps are all measured per exact
@@ -318,7 +326,7 @@ function borrowLocationFeatures(listings, lat, lon, k = 8) {
 function setupLookup() {
   const input = $('#lkAddr'), sug = $('#lkSug'), go = $('#lkGo'), err = $('#lkError'), result = $('#lkResult');
   const seg = $('#lkTypeSeg');
-  let items = [], hl = -1, timer, picked = null, lkType = 'villa';
+  let items = [], hl = -1, timer, picked = null, lkType = 'villa', pickGen = 0;
 
   const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
   const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
@@ -376,6 +384,7 @@ function setupLookup() {
     const it = items[i], a = it.adresse;
     input.value = it.tekst;
     picked = { name: it.tekst, lat: +a.y, lon: +a.x };
+    const myGen = ++pickGen;   // guards against a slower, earlier pick overwriting this one
     // a unit-level address (has etage and/or dør) means this is a condo —
     // switch the toggle and prefill the floor so the user doesn't have to
     // re-enter what they just picked from the suggestion list.
@@ -395,6 +404,7 @@ function setupLookup() {
     // worth the fetch.
     err.textContent = 'Henter BBR-data…';
     const bbrDone = loadBbrLookup().then(({ buildings, units }) => {
+      if (myGen !== pickGen) return;   // a newer pick has since replaced this one
       const bld = buildings.get(a.adgangsadresseid);
       if (bld && bld[0]) $('#lkYear').value = bld[0];
       const areaM2 = units.get(a.id);
@@ -404,10 +414,11 @@ function setupLookup() {
     // this session for comps' lot-size matching) — no new fetch, just the
     // same coordinate the address pick already gave us.
     const lotDone = loadGrundareal().then(lookup => {
+      if (myGen !== pickGen) return;
       const lotM2 = lookup(picked.lat, picked.lon);
       if (lotM2) $('#lkLot').value = lotM2;
     });
-    Promise.allSettled([bbrDone, lotDone]).then(() => { err.textContent = ''; });
+    Promise.allSettled([bbrDone, lotDone]).then(() => { if (myGen === pickGen) err.textContent = ''; });
   };
 
   seg.addEventListener('click', e => {

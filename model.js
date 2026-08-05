@@ -103,26 +103,6 @@
     };
     const dot = (beta, xi) => { let s = 0; for (let k = 0; k < p; k++) s += beta[k] * xi[k]; return s; };
 
-    // 5-fold cross-validation: the honest accuracy is out-of-sample, so a home's
-    // own asking price never helps predict itself. Gives the reported error and
-    // the uncertainty band (in-sample R² alone would flatter the model).
-    const K = 5, cvErr = [];
-    const foldOf = i => i % K;
-    for (let k = 0; k < K; k++) {
-      const tr = [], te = [];
-      for (let i = 0; i < n; i++) (foldOf(i) === k ? te : tr).push(i);
-      if (tr.length < p + 10) continue;
-      const b = fit(tr);
-      for (const i of te) cvErr.push(y[i] - dot(b, X[i]));   // log-space residual
-    }
-    if (cvErr.length > 50) {
-      const abs = cvErr.map(e => Math.abs(Math.exp(e) - 1)).sort((a, b) => a - b);
-      out.mape = Math.round(abs[Math.floor(abs.length / 2)] * 100);        // median abs % error
-      const q = cvErr.slice().sort((a, b) => a - b);
-      out.lo = Math.exp(q[Math.floor(q.length * 0.1)]);                    // 10th–90th pct band
-      out.hi = Math.exp(q[Math.floor(q.length * 0.9)]);
-    }
-
     // Robust refit: a handful of listings aren't ordinary homes — houseboats
     // (no plot, a fraction of the local kr/m²), andelslignende sales, encumbered
     // plots. Left in, they drag the whole surface down. Fit once, then drop rows
@@ -136,13 +116,36 @@
     rows.forEach((r, i) => { if (Math.abs(res0[i] - m0) <= cut) keep.push(i); else out.odd.add(r.id); });
     const beta = keep.length > p + 50 ? fit(keep) : b0;
 
-    const ybar = y.reduce((a, b) => a + b, 0) / n; let ssr = 0, sst = 0;
+    // 5-fold cross-validation: the honest accuracy is out-of-sample, so a home's
+    // own asking price never helps predict itself. Run on the same robust set the
+    // final model above is fit on (odd listings already excluded), so the
+    // reported error describes the model that actually produces every prediction
+    // below — not a different, pre-exclusion fit.
+    const K = 5, cvErr = [];
+    for (let k = 0; k < K; k++) {
+      const tr = [], te = [];
+      keep.forEach((idx, j) => (j % K === k ? te : tr).push(idx));
+      if (tr.length < p + 10) continue;
+      const b = fit(tr);
+      for (const i of te) cvErr.push(y[i] - dot(b, X[i]));   // log-space residual
+    }
+    if (cvErr.length > 50) {
+      const abs = cvErr.map(e => Math.abs(Math.exp(e) - 1)).sort((a, b) => a - b);
+      out.mape = Math.round(abs[Math.floor(abs.length / 2)] * 100);        // median abs % error
+      const q = cvErr.slice().sort((a, b) => a - b);
+      out.lo = Math.exp(q[Math.floor(q.length * 0.1)]);                    // 10th–90th pct band
+      out.hi = Math.exp(q[Math.floor(q.length * 0.9)]);
+    }
+
+    // R² likewise reflects how the final model fits the rows it was actually
+    // trained on (keep) — not the outliers it was deliberately fit to ignore.
+    const ybar = keep.reduce((a, i) => a + y[i], 0) / keep.length; let ssr = 0, sst = 0;
     rows.forEach((r, i) => {
       const yh = dot(beta, X[i]);
       out.pred.set(r.id, Math.round(Math.exp(yh)));
       out.resid.set(r.id, Math.round((r.m2p / Math.exp(yh) - 1) * 100));
-      ssr += (y[i] - yh) ** 2; sst += (y[i] - ybar) ** 2;
     });
+    keep.forEach(i => { const yh = dot(beta, X[i]); ssr += (y[i] - yh) ** 2; sst += (y[i] - ybar) ** 2; });
     out.r2 = sst ? 1 - ssr / sst : null;
 
     // Reuse the already-fitted model to price a home that isn't a listing at
