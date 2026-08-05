@@ -262,10 +262,13 @@ function syncControlsFromState() {
   if (activeFilterCount()) $('#moreFilters').open = true;
 }
 
-/* ---- DAWA address autocomplete ---- */
+/* ---- address autocomplete — self-hosted DAR register (#28), no live
+   third-party API. Building-level only (a coordinate is all this needs;
+   unit/floor detail is model.html's address-lookup page's concern, not
+   the commute-radius picker's). ---- */
 function setupGeo(which) {
   const input = $('#addr' + which), sug = $('#sug' + which);
-  let items = [], hl = -1, timer;
+  let items = [], hl = -1, timer, darIndex = null;
   const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
   input.addEventListener('input', () => {
     clearTimeout(timer);
@@ -273,11 +276,11 @@ function setupGeo(which) {
     if (q.length < 3) { close(); return; }
     timer = setTimeout(async () => {
       try {
-        const url = 'https://api.dataforsyningen.dk/adgangsadresser/autocomplete?per_side=6&q=' + encodeURIComponent(q);
-        items = await fetch(url).then(r => r.json());
+        if (!darIndex) darIndex = await BT.loadDarAddresses();
+        items = BT.matchHusnumre(darIndex, q, 6);
         sug.innerHTML = '';
         items.forEach((it, i) => {
-          const d = el('div', {}, it.tekst);
+          const d = el('div', {}, it.text);
           d.addEventListener('mousedown', ev => { ev.preventDefault(); pick(i); });
           sug.append(d);
         });
@@ -295,9 +298,9 @@ function setupGeo(which) {
   input.addEventListener('blur', () => setTimeout(close, 150));
   const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
   const pick = i => {
-    const it = items[i], a = it.adgangsadresse;
-    input.value = it.tekst;
-    S[which] = { name: it.tekst, lat: +a.y, lon: +a.x };
+    const it = items[i];
+    input.value = it.text;
+    S[which] = { name: it.text, lat: it.lat, lon: it.lon };
     close(); render(); fitToSelection();
   };
 }

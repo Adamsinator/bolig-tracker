@@ -165,7 +165,57 @@
     _fv = out; return out;
   }
 
+  // Shared by both pages (index.html's home/work pickers, model.html's
+  // address-lookup) — the self-hosted DAR address register that replaced
+  // DAWA (#28, sunset 17 Aug 2026). Lives here rather than modelpage.js
+  // because model.js is the one file already loaded by both pages.
+  async function gunzipB64(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const text = await new Response(stream).text();
+    return JSON.parse(text);
+  }
+
+  let _darAddrPromise = null;
+  function loadDarAddresses() {
+    if (_darAddrPromise) return _darAddrPromise;
+    _darAddrPromise = (async () => {
+      const doc = await fetch('data/dar_addresses.json').then(r => r.json());
+      const [hFlat, aFlat] = await Promise.all([gunzipB64(doc.husnumre), gunzipB64(doc.enheder)]);
+      const husnumre = [];
+      for (let i = 0; i < hFlat.length - 3; i += 4) {
+        const text = hFlat[i + 1];
+        husnumre.push({ id: hFlat[i], text, textLower: text.toLowerCase(), lat: hFlat[i + 2], lon: hFlat[i + 3] });
+      }
+      const enheder = new Map();   // husnummer id -> [{id, etage, doer}]
+      for (let i = 0; i < aFlat.length - 3; i += 4) {
+        const hn = aFlat[i + 1];
+        let list = enheder.get(hn);
+        if (!list) { list = []; enheder.set(hn, list); }
+        list.push({ id: aFlat[i], etage: aFlat[i + 2] || null, doer: aFlat[i + 3] || null });
+      }
+      return { husnumre, enheder };
+    })();
+    return _darAddrPromise;
+  }
+
+  // Prefix matches first (the common case — typing a street name from the
+  // start), falling back to substring matches only if there aren't enough.
+  function matchHusnumre(index, query, limit) {
+    const q = query.toLowerCase();
+    const pre = [], sub = [];
+    for (const r of index.husnumre) {
+      if (r.textLower.startsWith(q)) { pre.push(r); if (pre.length >= limit) break; }
+      else if (sub.length < limit && r.textLower.includes(q)) sub.push(r);
+    }
+    return (pre.length >= limit ? pre : pre.concat(sub)).slice(0, limit);
+  }
+
   window.BT = window.BT || {};
   BT.fairValue = fairValue;
   BT.median = median;
+  BT.loadDarAddresses = loadDarAddresses;
+  BT.matchHusnumre = matchHusnumre;
 })();

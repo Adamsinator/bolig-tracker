@@ -326,7 +326,8 @@ function borrowLocationFeatures(listings, lat, lon, k = 8) {
 function setupLookup() {
   const input = $('#lkAddr'), sug = $('#lkSug'), go = $('#lkGo'), err = $('#lkError'), result = $('#lkResult');
   const seg = $('#lkTypeSeg');
-  let items = [], hl = -1, timer, picked = null, lkType = 'villa', pickGen = 0;
+  let items = [], hl = -1, timer, picked = null, lkType = 'villa', pickGen = 0, darIndex = null;
+  const SUG_LIMIT = 10;
 
   const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
   const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
@@ -336,6 +337,38 @@ function setupLookup() {
   // picked" case: the error message below existed but could never show.
   const updateGo = () => { go.disabled = !($('#lkArea').value > 0); };
 
+  // A matched house is expanded to one suggestion per unit (kl., st. th/tv,
+  // 1. th/tv, ...) when it has any — #28's self-hosted register carries the
+  // same floor/door split DAWA's adresser/autocomplete used to give, since
+  // floor feeds the model directly. Houses with no units (villas) get one
+  // suggestion for the house itself.
+  const expandToUnits = matches => {
+    const out = [];
+    outer:
+    for (const r of matches) {
+      const units = darIndex.enheder.get(r.id);
+      if (units && units.length) {
+        const commaIdx = r.text.indexOf(',');
+        const head = commaIdx >= 0 ? r.text.slice(0, commaIdx) : r.text;
+        const tail = commaIdx >= 0 ? r.text.slice(commaIdx) : '';
+        for (const u of units) {
+          if (out.length >= SUG_LIMIT) break outer;
+          const etageLabel = u.etage === 'st' ? 'st.' : (u.etage ? u.etage + '.' : '');
+          const label = [etageLabel, u.doer].filter(Boolean).join(' ');
+          out.push({
+            text: label ? `${head}, ${label}${tail}` : r.text,
+            lat: r.lat, lon: r.lon, husnummerId: r.id,
+            unitId: u.id, etage: u.etage, doer: u.doer,
+          });
+        }
+      } else {
+        if (out.length >= SUG_LIMIT) break;
+        out.push({ text: r.text, lat: r.lat, lon: r.lon, husnummerId: r.id, unitId: null, etage: null, doer: null });
+      }
+    }
+    return out;
+  };
+
   input.addEventListener('input', () => {
     clearTimeout(timer);
     picked = null; updateGo();
@@ -343,17 +376,12 @@ function setupLookup() {
     if (q.length < 3) { close(); return; }
     timer = setTimeout(async () => {
       try {
-        // adresser (not adgangsadresser) — the access-address endpoint used
-        // elsewhere on the site is building/entrance level only and never
-        // offers individual units (confirmed live: 1 result for "Esthersvej
-        // 45, 2900 Hellerup" vs. 9 unit-level results — kl., st. th/tv,
-        // 1. th/tv, 2. th/tv, 3. th/tv — from this endpoint). Picking the
-        // right unit matters here since floor feeds the model directly.
-        const url = 'https://api.dataforsyningen.dk/adresser/autocomplete?per_side=8&q=' + encodeURIComponent(q);
-        items = await fetch(url).then(r => r.json());
+        if (!darIndex) darIndex = await BT.loadDarAddresses();
+        const matches = BT.matchHusnumre(darIndex, q, SUG_LIMIT);
+        items = expandToUnits(matches);
         sug.innerHTML = '';
         items.forEach((it, i) => {
-          const d = el('div', {}, it.tekst);
+          const d = el('div', {}, it.text);
           d.addEventListener('mousedown', ev => { ev.preventDefault(); pick(i); });
           sug.append(d);
         });
@@ -381,16 +409,16 @@ function setupLookup() {
   const parseEtage = e => e == null ? null : e === 'st' ? 0 : /^\d+$/.test(e) ? +e : null;
 
   const pick = i => {
-    const it = items[i], a = it.adresse;
-    input.value = it.tekst;
-    picked = { name: it.tekst, lat: +a.y, lon: +a.x };
+    const it = items[i];
+    input.value = it.text;
+    picked = { name: it.text, lat: it.lat, lon: it.lon };
     const myGen = ++pickGen;   // guards against a slower, earlier pick overwriting this one
     // a unit-level address (has etage and/or dør) means this is a condo —
     // switch the toggle and prefill the floor so the user doesn't have to
     // re-enter what they just picked from the suggestion list.
-    if (a.etage != null || a.dør != null) {
+    if (it.etage != null || it.doer != null) {
       applyType('condo');
-      const fl = parseEtage(a.etage);
+      const fl = parseEtage(it.etage);
       if (fl != null) $('#lkFloor').value = fl;
     }
     close(); updateGo();
@@ -405,10 +433,12 @@ function setupLookup() {
     err.textContent = 'Henter BBR-data…';
     const bbrDone = loadBbrLookup().then(({ buildings, units }) => {
       if (myGen !== pickGen) return;   // a newer pick has since replaced this one
-      const bld = buildings.get(a.adgangsadresseid);
+      const bld = buildings.get(it.husnummerId);
       if (bld && bld[0]) $('#lkYear').value = bld[0];
-      const areaM2 = units.get(a.id);
-      if (areaM2) { $('#lkArea').value = areaM2; updateGo(); }
+      if (it.unitId) {
+        const areaM2 = units.get(it.unitId);
+        if (areaM2) { $('#lkArea').value = areaM2; updateGo(); }
+      }
     });
     // Grundstørrelse: data/grundareal.json already exists (fetched earlier
     // this session for comps' lot-size matching) — no new fetch, just the
