@@ -14,3 +14,4 @@ jobs:
           python-version: "3.12"
       - run: python3 scripts/probe_adressevaelger.py
       - run: python3 scripts/probe_adressevaelger2.py
+      - run: python3 scripts/probe_adressevaelger3.py
