@@ -42,9 +42,11 @@
   .lk-result .lk-band { font-size:13.5px; color:var(--ink-2); margin-top:2px; }
   .lk-result .lk-caveat { font-size:12.5px; color:var(--muted); margin-top:10px; line-height:1.5; }
   .lk-error { font-size:13.5px; color:var(--muted); margin-top:12px; }
-  .math-box { font-family:ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:12.5px; line-height:1.8;
-    background:var(--surface-2); border-radius:8px; padding:12px 14px; margin:10px 0; overflow-x:auto; color:var(--ink); }
-  .math-box .c { color:var(--muted); }
+  .math-box { background:var(--surface-2); border-radius:8px; padding:14px 16px; margin:10px 0 4px; overflow-x:auto; color:var(--ink); }
+  .math-box math { font-size:16.5px; }
+  .math-box math mtext { font-family:inherit; }
+  .math-comment { font-family:ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:11.5px;
+    color:var(--muted); margin:0 0 14px; }
   .feat-table td, .feat-table th { vertical-align:top; }
   .feat-table td.expr { font-family:ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:12px; white-space:nowrap; }
   .feat-table td.cond { color:var(--muted); font-size:11.5px; }
@@ -212,16 +214,53 @@
         <strong>Lokalt benchmark</strong> er ikke en rå gennemsnitspris i området: hvert salg er tidsjusteret til i dag med
         korridorens eget kvartalsindeks, matchet på boligtype, størrelse og byggeår, og de nærmeste salg vægtes efter
         afstand frem for en hård radius — så et tyndt datagrundlag falder gradvist tilbage på kommune-/typemedianen i
-        stedet for at springe til en 2 km-median.
+        stedet for at springe til en 2 km-median. Konkret er det en vægtet median af de <var>K</var> nærmeste tidsjusterede
+        salg, med vægt <var>w</var> aftagende i afstand <var>d</var> (halveret ved 500 m):
       </p>
+      <div class="math-box">
+        <math display="block">
+          <mtable>
+            <mtr><mtd style="text-align:left">
+              <mtext>comp</mtext><mo>=</mo><mtext>vægtet&#160;median</mtext><mo>(</mo>
+              <mo>{</mo><mo>(</mo><msub><mi>v</mi><mi>j</mi></msub><mo>,</mo><msub><mi>w</mi><mi>j</mi></msub><mo>)</mo><mo>}</mo>
+              <mo>,</mo><mspace width="0.4em"></mspace><mi>j</mi><mo>=</mo><mn>1</mn><mo>&#8230;</mo><mi>K</mi><mo>)</mo>
+            </mtd></mtr>
+            <mtr><mtd style="text-align:left">
+              <msub><mi>w</mi><mi>j</mi></msub><mo>=</mo>
+              <mfrac><mn>1</mn><mrow><mn>1</mn><mo>+</mo><msub><mi>d</mi><mi>j</mi></msub><mo>/</mo><mn>500</mn></mrow></mfrac>
+            </mtd></mtr>
+          </mtable>
+        </math>
+      </div>
 
       <div class="mdl-h3">Ridge-regression</div>
       <div class="math-box">
-β̂ = argmin<sub>β</sub>  Σᵢ (yᵢ − xᵢ·β)²  +  λ Σⱼ₌₁ βⱼ²<br>
-<span class="c">// løses som de normale ligninger, ikke ved iterativ optimering:</span><br>
-(XᵀX + λI) β = Xᵀy,  λ = 1<br>
-<span class="c">// I er identitetsmatricen med et 0 i første celle — konstantledet straffes ikke</span>
+        <math display="block">
+          <mrow>
+            <mover><mi>β</mi><mo>^</mo></mover>
+            <mo>=</mo>
+            <munder><mtext>arg&#160;min</mtext><mi>β</mi></munder>
+            <mrow>
+              <munderover><mo>&#8721;</mo><mi>i</mi><mi>n</mi></munderover>
+              <msup><mrow><mo>(</mo><msub><mi>y</mi><mi>i</mi></msub><mo>&#8722;</mo><msub><mi>x</mi><mi>i</mi></msub><mo>&#8901;</mo><mi>β</mi><mo>)</mo></mrow><mn>2</mn></msup>
+              <mo>+</mo><mi>λ</mi>
+              <munderover><mo>&#8721;</mo><mi>j</mi><mi>p</mi></munderover>
+              <msubsup><mi>β</mi><mi>j</mi><mn>2</mn></msubsup>
+            </mrow>
+          </mrow>
+        </math>
       </div>
+      <div class="math-comment">// løses som de normale ligninger, ikke ved iterativ optimering:</div>
+      <div class="math-box">
+        <math display="block">
+          <mrow>
+            <mo>(</mo><msup><mi>X</mi><mi>T</mi></msup><mi>X</mi><mo>+</mo><mi>λ</mi><mi>I</mi><mo>)</mo>
+            <mi>β</mi><mo>=</mo><msup><mi>X</mi><mi>T</mi></msup><mi>y</mi>
+            <mo>,</mo><mspace width="0.6em"></mspace><mi>λ</mi><mo>=</mo><mn>1</mn>
+          </mrow>
+        </math>
+      </div>
+      <div class="math-comment">// I er identitetsmatricen med et 0 i første celle — konstantledet straffes ikke</div>
       <p class="mdl-note">
         Løses direkte ved Gauss-elimination med delvis pivotering (partial pivoting), ikke gradient descent —
         designmatricen er lille nok (typisk 15–55 kolonner) til at det er både hurtigere og eksakt. Ridge-leddet
@@ -231,30 +270,85 @@
 
       <div class="mdl-h3">Krydsvalidering — den ærlige træfsikkerhed</div>
       <p class="mdl-note">
-        Boligerne deles i 5 lige store, faste grupper (bolig <var>i</var> havner i gruppe <var>i</var> mod 5). For hver
-        gruppe trænes modellen <em>uden</em> den gruppe og forudsiger så netop de udeladte boliger — en bolig er
-        derfor aldrig med til at forudsige sig selv. “Typisk afvigelse” er medianen af |exp(residual) − 1| på tværs af
-        alle fem grupper; usikkerhedsspændet er 10. og 90. percentil af de samme residualer. Forklaringsgraden
-        (R²) nedenfor er <em>ikke</em> beregnet krydsvalideret — se forbeholdet nederst.
+        Boligerne deles i 5 lige store, faste grupper. For hver gruppe trænes modellen <em>uden</em> den gruppe og
+        forudsiger så netop de udeladte boliger — en bolig er derfor aldrig med til at forudsige sig selv:
+      </p>
+      <div class="math-box">
+        <math display="block">
+          <mrow><mtext>fold</mtext><mo>(</mo><mi>i</mi><mo>)</mo><mo>=</mo><mi>i</mi><mtext>&#160;mod&#160;5</mtext></mrow>
+        </math>
+      </div>
+      <p class="mdl-note">
+        “Typisk afvigelse” er medianen af den absolutte procentfejl på tværs af alle fem grupper (hver bolig scoret af
+        den model, der <em>ikke</em> så den under træning); usikkerhedsspændet er 10. og 90. percentil af de samme
+        residualer:
+      </p>
+      <div class="math-box">
+        <math display="block">
+          <mrow>
+            <mtext>typisk&#160;afvigelse</mtext><mo>=</mo>
+            <munder><mtext>median</mtext><mrow><mi>i</mi><mo>&#8712;</mo><mtext>test</mtext></mrow></munder>
+            <mrow><mo>|</mo>
+              <msup><mi>e</mi><mrow><msub><mi>y</mi><mi>i</mi></msub><mo>&#8722;</mo><msub><mover><mi>y</mi><mo>^</mo></mover><mi>i</mi></msub></mrow></msup>
+              <mo>&#8722;</mo><mn>1</mn>
+            <mo>|</mo></mrow>
+          </mrow>
+        </math>
+      </div>
+      <p class="mdl-note">
+        Forklaringsgraden (R²) nedenfor er <em>ikke</em> beregnet krydsvalideret — se forbeholdet nederst.
       </p>
 
       <div class="mdl-h3">Robust genberegning</div>
       <p class="mdl-note">
         Modellen fittes først på alle boliger; residualerne <var>y</var> − <var>Xβ</var>₀ giver en median
-        <var>m</var>₀ og en MAD (median absolut afvigelse fra medianen). Enhver bolig med
-        |residual − <var>m</var>₀| &gt; 3 · 1,4826 · MAD udelades (faktoren 1,4826 skalerer MAD til at svare til én
-        standardafvigelse under en normalfordeling), og modellen genberegnes på resten. Det er præcis de boliger, der
-        vises i “Boliger modellen holder udenfor” ovenfor.
+        <var>m</var>₀ og en MAD (median absolut afvigelse fra medianen). Faktoren 1,4826 skalerer MAD til at svare
+        til én standardafvigelse under en normalfordeling:
+      </p>
+      <div class="math-box">
+        <math display="block">
+          <mtable>
+            <mtr><mtd style="text-align:left">
+              <msub><mi>m</mi><mn>0</mn></msub><mo>=</mo><mtext>median</mtext><mo>(</mo><msub><mi>r</mi><mi>i</mi></msub><mo>)</mo>
+              <mspace width="0.8em"></mspace>
+              <mtext>MAD</mtext><mo>=</mo><mtext>median</mtext><mo>(</mo><mo>|</mo><msub><mi>r</mi><mi>i</mi></msub><mo>&#8722;</mo><msub><mi>m</mi><mn>0</mn></msub><mo>|</mo><mo>)</mo>
+            </mtd></mtr>
+            <mtr><mtd style="text-align:left">
+              <mo>|</mo><msub><mi>r</mi><mi>i</mi></msub><mo>&#8722;</mo><msub><mi>m</mi><mn>0</mn></msub><mo>|</mo>
+              <mo>&gt;</mo><mn>3</mn><mo>&#8901;</mo><mn>1.4826</mn><mo>&#8901;</mo><mtext>MAD</mtext>
+              <mspace width="0.6em"></mspace><mo>&#8658;</mo><mspace width="0.3em"></mspace><mtext>udelades</mtext>
+            </mtd></mtr>
+          </mtable>
+        </math>
+      </div>
+      <p class="mdl-note">
+        Modellen genberegnes på resten. Det er præcis de boliger, der vises i “Boliger modellen holder udenfor” ovenfor.
       </p>
 
       <div class="mdl-h3">Om R² — en vigtig forskel</div>
       <p class="mdl-note">
         R² beregnes på det <em>endelige</em>, robuste fit — altså hvor godt modellen rammer boliger, den selv har
-        trænet på, ikke nye boliger den ikke har set. Det er derfor et andet tal end “typisk afvigelse” (som er
-        krydsvalideret) og kan ikke bruges som et mål for reel træfsikkerhed alene. Flere features vil næsten altid
-        løfte R² lidt, selv når de reelt intet bidrager med — jo flere frihedsgrader, jo bedre kan modellen tilpasse
-        sig data den allerede kender. Det er præcis derfor krydsvalideret “typisk afvigelse”, ikke R², er det tal der
-        afgør om en ny feature bliver i modellen eller fjernes igen.
+        trænet på (mængden <var>keep</var>), ikke nye boliger den ikke har set:
+      </p>
+      <div class="math-box">
+        <math display="block">
+          <mrow>
+            <msup><mi>R</mi><mn>2</mn></msup><mo>=</mo><mn>1</mn><mo>&#8722;</mo>
+            <mfrac>
+              <mrow><munder><mo>&#8721;</mo><mrow><mi>i</mi><mo>&#8712;</mo><mtext>keep</mtext></mrow></munder>
+                <msup><mrow><mo>(</mo><msub><mi>y</mi><mi>i</mi></msub><mo>&#8722;</mo><msub><mover><mi>y</mi><mo>^</mo></mover><mi>i</mi></msub><mo>)</mo></mrow><mn>2</mn></msup></mrow>
+              <mrow><munder><mo>&#8721;</mo><mrow><mi>i</mi><mo>&#8712;</mo><mtext>keep</mtext></mrow></munder>
+                <msup><mrow><mo>(</mo><msub><mi>y</mi><mi>i</mi></msub><mo>&#8722;</mo><mover><mi>y</mi><mo>&#8254;</mo></mover><mo>)</mo></mrow><mn>2</mn></msup></mrow>
+            </mfrac>
+          </mrow>
+        </math>
+      </div>
+      <p class="mdl-note">
+        Det er derfor et andet tal end “typisk afvigelse” (som er krydsvalideret) og kan ikke bruges som et mål for reel
+        træfsikkerhed alene. Flere features vil næsten altid løfte R² lidt, selv når de reelt intet bidrager med — jo
+        flere frihedsgrader, jo bedre kan modellen tilpasse sig data den allerede kender. Det er præcis derfor
+        krydsvalideret “typisk afvigelse”, ikke R², er det tal der afgør om en ny feature bliver i modellen eller
+        fjernes igen.
       </p>
     </div>
   </section>
