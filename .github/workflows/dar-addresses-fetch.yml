@@ -1,0 +1,106 @@
+name: Fetch DAR address register for self-hosted address search (one-off)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    # Scale is unconfirmed (introspection is disabled on this API, so no
+    # count query was possible) but expected comparable to or larger than
+    # the BBR lookup fetch (#26 follow-up: ~2h45m for 381k buildings +
+    # 1.08M units) since this also has an extra join stage (vejids ->
+    # husnummer -> adressepunkter -> adresser). Each stage checkpoints on
+    # its own commit, so a slow/failing later stage never costs the
+    # already-fetched data from earlier ones.
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Stage 1 — DAR_NavngivenVejKommunedel (street ids per kommune)
+        run: python3 scripts/fetch_dar_addresses_once.py vejids
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit stage 1 cache
+        run: |
+          git add data/dar_addresses_cache_vejids.json
+          if git diff --cached --quiet; then echo "nothing to commit"; else
+            git commit -m "DAR addresses fetch: vejids cache"
+            for i in 1 2 3 4; do
+              git pull --rebase origin main && git push && break
+              sleep $((2 ** i))
+            done
+          fi
+
+      - name: Stage 2 — DAR_Husnummer (house numbers on those streets)
+        run: python3 scripts/fetch_dar_addresses_once.py husnummer
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit stage 2 cache
+        run: |
+          git add data/dar_addresses_cache_husnummer.json
+          if git diff --cached --quiet; then echo "nothing to commit"; else
+            git commit -m "DAR addresses fetch: husnummer cache"
+            for i in 1 2 3 4; do
+              git pull --rebase origin main && git push && break
+              sleep $((2 ** i))
+            done
+          fi
+
+      - name: Stage 3 — DAR_Adressepunkt (coordinates)
+        run: python3 scripts/fetch_dar_addresses_once.py adressepunkter
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit stage 3 cache
+        run: |
+          git add data/dar_addresses_cache_adressepunkter.json
+          if git diff --cached --quiet; then echo "nothing to commit"; else
+            git commit -m "DAR addresses fetch: adressepunkter cache"
+            for i in 1 2 3 4; do
+              git pull --rebase origin main && git push && break
+              sleep $((2 ** i))
+            done
+          fi
+
+      - name: Stage 4 — DAR_Adresse (units, floor/door)
+        run: python3 scripts/fetch_dar_addresses_once.py adresser
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit stage 4 cache
+        run: |
+          git add data/dar_addresses_cache_adresser.json
+          if git diff --cached --quiet; then echo "nothing to commit"; else
+            git commit -m "DAR addresses fetch: adresser cache"
+            for i in 1 2 3 4; do
+              git pull --rebase origin main && git push && break
+              sleep $((2 ** i))
+            done
+          fi
+
+      - name: Stage 5 — write data/dar_addresses.json
+        run: python3 scripts/fetch_dar_addresses_once.py write
+        env:
+          DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
+      - name: Commit final data, remove caches
+        run: |
+          git add data/dar_addresses.json
+          git rm -f data/dar_addresses_cache_vejids.json data/dar_addresses_cache_husnummer.json \
+                    data/dar_addresses_cache_adressepunkter.json data/dar_addresses_cache_adresser.json
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          git commit -m "Add DAR address register for self-hosted address search"
+          for i in 1 2 3 4; do
+            git pull --rebase origin main && git push && exit 0
+            sleep $((2 ** i))
+          done
+          exit 1
