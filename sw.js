@@ -1,10 +1,15 @@
 /* Bolig Tracker service worker — makes the installed app load instantly and
-   work offline. Shell is cache-first (versioned); data JSON is network-first
-   with a cache fallback so you always get fresh listings when online. */
-const CACHE = 'bolig-tracker-v74';
+   work offline. Shell is stale-while-revalidate: serve the cached copy
+   immediately (instant load, works offline), then refresh it from the
+   network in the background — this matters most for un-versioned shell URLs
+   (model.html, index.html, ...) that would otherwise never update once
+   cached, no matter how many times a returning visitor reloads. Data JSON
+   is network-first with a cache fallback so you always get fresh listings
+   when online. */
+const CACHE = 'bolig-tracker-v75';
 const SHELL = [
   './', './index.html', './styles.css?v=50', './app.js?v=66',
-  './model.html', './model.js?v=5', './modelpage.js?v=5',
+  './model.html', './model.js?v=6', './modelpage.js?v=6',
   './renter.html', './renter.js?v=43', './om.html',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
   './logo.svg?v=14', './icon-192.png?v=14', './apple-touch-icon.png?v=14',
@@ -38,10 +43,18 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // app shell: serve from cache, refresh in the background
+  // app shell: serve from cache immediately for speed/offline, but always
+  // refresh the cache from the network in the background too — the old
+  // version here only fetched when there was NO cached copy, so a cached
+  // shell URL (especially an un-versioned one like model.html) never got
+  // updated by a normal visit, only by a service-worker reinstall.
   e.respondWith(
-    caches.match(req).then(cached => cached || fetch(req).then(res => {
-      const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); return res;
-    }))
+    caches.match(req).then(cached => {
+      const refresh = fetch(req).then(res => {
+        const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); return res;
+      }).catch(() => cached);
+      e.waitUntil(refresh);
+      return cached || refresh;
+    })
   );
 });
