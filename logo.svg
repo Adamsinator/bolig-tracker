@@ -1,25 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3b8bf0"/>
-      <stop offset="1" stop-color="#1c5cb0"/>
-    </linearGradient>
-    <linearGradient id="acc" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#ffd66b"/>
-      <stop offset="1" stop-color="#ffb020"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="#14181a"/>
   <!-- roof -->
   <path d="M256 96 L438 246 L74 246 Z" fill="#ffffff"/>
-  <rect x="74" y="238" width="364" height="20" rx="10" fill="#ffffff"/>
+  <rect x="74" y="238" width="364" height="18" fill="#ffffff"/>
   <!-- rising bars (the tracker) -->
   <g fill="#ffffff">
-    <rect x="140" y="356" width="48" height="70"  rx="10"/>
-    <rect x="208" y="322" width="48" height="104" rx="10"/>
-    <rect x="276" y="292" width="48" height="134" rx="10"/>
+    <rect x="140" y="356" width="48" height="70"/>
+    <rect x="208" y="322" width="48" height="104"/>
+    <rect x="276" y="292" width="48" height="134"/>
   </g>
-  <rect x="344" y="262" width="48" height="164" rx="10" fill="url(#acc)"/>
+  <rect x="344" y="262" width="48" height="164" fill="#da291c"/>
   <!-- baseline -->
-  <rect x="128" y="430" width="276" height="16" rx="8" fill="#ffffff" opacity="0.9"/>
+  <rect x="128" y="430" width="276" height="14" fill="#ffffff" opacity="0.9"/>
 </svg>
