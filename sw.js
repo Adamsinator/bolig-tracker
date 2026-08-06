@@ -6,14 +6,16 @@
    cached, no matter how many times a returning visitor reloads. Data JSON
    is network-first with a cache fallback so you always get fresh listings
    when online. */
-const CACHE = 'bolig-tracker-v76';
+const CACHE = 'bolig-tracker-v77';
 const SHELL = [
-  './', './index.html', './styles.css?v=50', './app.js?v=67',
+  './', './index.html', './styles.css?v=51', './app.js?v=67',
   './model.html', './model.js?v=7', './modelpage.js?v=7',
   './renter.html', './renter.js?v=43', './om.html',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
-  './logo.svg?v=14', './icon-192.png?v=14', './apple-touch-icon.png?v=14',
-  './manifest.webmanifest?v=14',
+  './logo.svg?v=15', './icon-192.png?v=15', './apple-touch-icon.png?v=15',
+  './manifest.webmanifest?v=15',
+  './fonts/archivo-900.woff2', './fonts/archivo-700.woff2', './fonts/archivo-500.woff2',
+  './fonts/jetbrains-mono-400.woff2', './fonts/jetbrains-mono-700.woff2',
 ];
 
 self.addEventListener('install', e => {
