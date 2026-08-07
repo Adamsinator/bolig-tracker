@@ -122,7 +122,7 @@ a { color: var(--condo); }
 .seg button { border:0; border-right:1px solid var(--border); background:transparent; color:var(--ink-2); padding:8px 16px;
   border-radius:0; font:inherit; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.02em; cursor:pointer; }
 .seg button:last-child { border-right:0; }
-.seg button.active { background:var(--ink); color:var(--plane); }
+.seg button.active { background:var(--ink); color:var(--plane); border-right-color:transparent; }
 .seg button[data-type="condo"].active { background:var(--condo); color:#fff; }
 .seg button[data-type="villa"].active { background:var(--villa); color:#fff; }
 
