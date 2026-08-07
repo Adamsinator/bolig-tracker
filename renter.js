@@ -26,7 +26,7 @@ function wireNumInput(id, onChange) {
   fmt();  // format the initial value
   e.addEventListener('input', () => { fmt(); onChange(); });
 }
-const COLORS = ['#e6212a', '#e08a00', '#12a06f', '#1c5cb0', '#7a5cff', '#00a3c7', '#555'];
+const COLORS = ['#da291c', '#d8641f', '#00843d', '#0a4bb5', '#7a5cff', '#00a7c4', '#50575a'];
 
 // theme (shared key with the main app)
 (function () {
@@ -194,10 +194,10 @@ function renderCurve(mo) {
   for (let g = 0; g <= 4; g++) { const yv = lo + (hi - lo) * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = yv.toFixed(1) + '%'; svg.append(tx); }
   let d = '';
   pts.forEach((p, i) => { d += (i ? ' L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.v).toFixed(1); });
-  svg.append(svel('path', { d, fill: 'none', stroke: cssVar('--condo') || '#1c5cb0', 'stroke-width': 2.6, 'stroke-linejoin': 'round' }));
+  svg.append(svel('path', { d, fill: 'none', stroke: cssVar('--condo') || '#0a4bb5', 'stroke-width': 2.6, 'stroke-linejoin': 'round' }));
   pts.forEach((p, i) => {
     const g = svel('g');
-    g.append(svel('circle', { cx: X(i), cy: Y(p.v), r: 4, fill: cssVar('--condo') || '#1c5cb0' }));
+    g.append(svel('circle', { cx: X(i), cy: Y(p.v), r: 4, fill: cssVar('--condo') || '#0a4bb5' }));
     const vt = svel('text', { x: X(i), y: Y(p.v) - 8, 'text-anchor': 'middle', class: 'bar-val' }); vt.textContent = p.v.toFixed(2); g.append(vt);
     const lx = X(i), ly = H - padB + 16; const lt = svel('text', { x: lx, y: ly, class: 'axis-txt', 'text-anchor': 'end', transform: `rotate(-35 ${lx} ${ly})` }); lt.textContent = p.lab; g.append(lt);
     g.addEventListener('mousemove', e => showTip(`<div class="tt-title">${p.full}</div><div class="tt-row"><span>Effektiv rente</span><b>${pct(p.v)}</b></div>`, e.clientX, e.clientY));
@@ -279,7 +279,7 @@ function amortChart(mount, years, crossYear) {
   const Y = v => padT + plotH - v / max * plotH;
   const svg = svel('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
   for (let g = 0; g <= 4; g++) { const yv = max * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = Math.round(yv / 1000) + 'k'; svg.append(tx); }
-  const cAf = cssVar('--good') || '#1a7f37', cRe = cssVar('--bad') || '#c0392b';
+  const cAf = cssVar('--good') || '#00843d', cRe = cssVar('--bad') || '#da291c';
   years.forEach((y, i) => {
     const x = padL + i * gap + (gap - bw) / 2;
     const hAf = y.principal / max * plotH, hRe = y.interest / max * plotH;

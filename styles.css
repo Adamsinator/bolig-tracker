@@ -19,7 +19,7 @@
   --surface-2:    #e7e8e2;
   --ink:          #14181a;
   --ink-2:        #50575a;
-  --muted:        #83898b;
+  --muted:        #727779;
   --grid:         rgba(20,24,26,.14);
   --texture:      rgba(20,24,26,.05);
   --axis:         #c7cac2;
@@ -448,6 +448,10 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 :focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
 .chip:focus-visible { outline-offset:1px; }
 .lcard:focus-visible { outline-offset:3px; }
+/* .topbar (the board) keeps a fixed dark background regardless of theme, so
+   in light mode var(--ink) is near-black on near-black — invisible. Use the
+   board's own (also fixed) light foreground instead. */
+.topbar :focus-visible { outline-color: var(--board-fg); }
 
 /* ---- per-kommune stats (click a bar in the kommune chart) ---- */
 #chartScatter { max-width:600px; }
