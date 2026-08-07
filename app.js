@@ -1580,7 +1580,14 @@ function renderMapLegend(colorBy, f, lineColors) {
     if (lines.some(l => l.mode === 'metro' && !METRO_REF_ORDER.includes(l.ref)) && !refs.length)
       box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line', style: `border-top-color:${METRO_COLORS.metro}` }), 'Metro'));
     if (lines.some(l => l.mode === 'letbane')) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${METRO_COLORS.letbane}` }), 'Letbane (Ring 3)'));
-    lines.filter(l => l.mode === 'lokal').forEach(l => box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${LOKAL_COLOR}` }), l.name || l.ref)));
+    // All local/regional lines share one colour+dash style (unlike S-tog,
+    // they aren't individually distinguishable on the map), so a row per
+    // line just repeats the same swatch — often 7+ times — and made the
+    // legend column far taller than the map itself. One row communicates
+    // the same thing.
+    const lokalLines = lines.filter(l => l.mode === 'lokal');
+    if (lokalLines.length) box.append(el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${LOKAL_COLOR}` }),
+      lokalLines.length > 1 ? 'Lokal-/regionaltog' : (lokalLines[0].name || lokalLines[0].ref)));
   }
   if (S.showPois && S.poi) box.append(legItem(POI_STYLE.supermarket.c, 'Indkøb'), legItem(POI_STYLE.school.c, 'Skole'), legItem(POI_STYLE.kindergarten.c, 'Daginstitution'));
 }
