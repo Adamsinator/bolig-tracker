@@ -1087,7 +1087,8 @@ const MAP = { map: null, tiles: null, L: {}, renderer: null, inited: false };
 const LINE_COLORS = () => ({ central: cssVar('--ink-2'), hilleroed: cssVar('--condo'), klampenborg: '#12a06f', farum: '#7a5cff', frederikssund: '#e08a00', kystbanen: cssVar('--muted') });
 const BIG_STATIONS = new Set(['København H', 'Hellerup', 'Nørreport', 'Lyngby', 'Holte', 'Birkerød', 'Allerød', 'Hillerød', 'Farum', 'Værløse', 'Ballerup', 'Herlev', 'Klampenborg', 'Charlottenlund', 'Gentofte', 'Bagsværd', 'Rungsted Kyst', 'Nivå', 'Ordrup', 'Buddinge', 'Svanemøllen', 'Virum']);
 // S-tog line colours (issue #6) — one per real line ref from meta.railGeom.
-const STOG_COLORS = { A: '#1a9850', B: '#8c510a', Bx: '#bf9b30', C: '#e08214', E: '#2166ac', F: '#d6604d', H: '#01665e' };
+// Sampled directly from DSB's official line diagram, not approximated.
+const STOG_COLORS = { A: '#30b4e6', B: '#50ac34', Bx: '#b1cf75', C: '#f19205', E: '#897db5', F: '#f9c30d', H: '#e44215' };
 const STOG_ORDER = ['A', 'B', 'Bx', 'C', 'E', 'F', 'H'];
 const STOG_OFFSET_M = 12;   // sideways spacing so lines sharing track show as parallel strands
 // Amenity overlay (issue #7) — data/poi.json. childcare folds into daginstitution.
@@ -1099,6 +1100,45 @@ const POI_STYLE = {
 };
 const POI_ZOOM = 13;   // amenities are dense — only label/draw them zoomed in
 const LOKAL_COLOR = '#8a6d3b';   // local light rail (Nærumbanen / Gribskovbanen)
+
+// Rail/transit geometry comes from real OSM route relations, which run the
+// line's full physical length — e.g. S-tog A continues to Køge, H to
+// Frederikssund's own outskirts — well past the 28 kommuner this app
+// actually tracks. Drawing that full length implies data coverage the app
+// doesn't have, so rail/transit lines and stations are capped to the
+// tracked kommunes' combined outline (S.geo, already loaded for the
+// choropleth boundaries).
+let _regionIndex = null;
+function regionIndex() {
+  if (!_regionIndex) _regionIndex = (S.meta.municipalities || []).map(m => S.geo[m.slug]).filter(Boolean);
+  return _regionIndex;
+}
+function pointInRing(lat, lon, ring) {   // ring: [[lon,lat], …]; standard ray-casting
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function inTrackedRegion(lat, lon) {
+  return regionIndex().some(g => {
+    const [minlon, minlat, maxlon, maxlat] = g.bbox;
+    if (lon < minlon || lon > maxlon || lat < minlat || lat > maxlat) return false;
+    return g.rings.some(ring => pointInRing(lat, lon, ring));
+  });
+}
+// splits a polyline into the sub-runs that fall inside the tracked region, so
+// a tail running off into untracked territory is dropped rather than drawn
+function clipToRegion(pts) {
+  const runs = []; let cur = [];
+  for (const p of pts) {
+    if (inTrackedRegion(p[0], p[1])) cur.push(p);
+    else { if (cur.length > 1) runs.push(cur); cur = []; }
+  }
+  if (cur.length > 1) runs.push(cur);
+  return runs;
+}
 
 function isDark() { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
 function tileUrl() {
@@ -1229,8 +1269,9 @@ function drawTransit() {
   // sideways by ref so lines sharing a tunnel render as parallel strands.
   (tr.lines || []).forEach(ln => {
     if (ln.mode === 'lokal') {   // Nærumbanen / Gribskovbanen — dashed, own colour
-      (ln.segs || []).forEach(seg => L.polyline(seg, { renderer: MAP.transitRenderer,
-        color: LOKAL_COLOR, weight: 1.3, opacity: 0.7, dashArray: '2 5', lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit));
+      (ln.segs || []).forEach(seg => clipToRegion(seg).forEach(run =>
+        L.polyline(run, { renderer: MAP.transitRenderer,
+          color: LOKAL_COLOR, weight: 1.3, opacity: 0.7, dashArray: '2 5', lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit)));
       return;
     }
     const refCol = METRO_REFS[ln.ref];
@@ -1238,10 +1279,12 @@ function drawTransit() {
     const c = refCol || tagCol || METRO_COLORS.metro;
     const idx = METRO_REF_ORDER.indexOf(ln.ref);
     const off = idx >= 0 ? (idx - mid) * METRO_OFFSET_M : 0;
-    (ln.segs || []).forEach(seg => L.polyline(offsetLatLngs(seg, off), { renderer: MAP.transitRenderer,
-      color: c, weight: 1.4, opacity: 0.7, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit));
+    (ln.segs || []).forEach(seg => clipToRegion(offsetLatLngs(seg, off)).forEach(run =>
+      L.polyline(run, { renderer: MAP.transitRenderer,
+        color: c, weight: 1.4, opacity: 0.7, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.transit)));
   });
   (tr.stations || []).forEach(st => {
+    if (!inTrackedRegion(st.lat, st.lon)) return;
     L.circleMarker([st.lat, st.lon], { renderer: MAP.transitRenderer, radius: 3, color: '#4b5563', weight: 1.6, fillColor: cssVar('--surface'), fillOpacity: 1 })
       .addTo(MAP.L.transit).bindTooltip(esc(st.name) + ' · Metro', { direction: 'top', offset: [0, -4] });
   });
@@ -1257,6 +1300,7 @@ function drawTransitLabels() {
   const tr = S.meta && S.meta.transit;
   if (!tr || !MAP.map || MAP.map.getZoom() < TRANSIT_LABEL_ZOOM) return;
   (tr.stations || []).forEach(st => {
+    if (!inTrackedRegion(st.lat, st.lon)) return;
     L.marker([st.lat, st.lon], { icon: L.divIcon({ className: 'st-name', html: esc(st.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
   });
 }
@@ -1279,14 +1323,16 @@ function drawRail() {
     STOG_ORDER.filter(ref => rg[ref]).forEach(ref => {
       const c = STOG_COLORS[ref] || col.central;
       const off = (STOG_ORDER.indexOf(ref) - smid) * STOG_OFFSET_M;
-      (rg[ref] || []).forEach(seg => L.polyline(offsetLatLngs(seg, off), { renderer: MAP.renderer, color: c,
-        weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.rail));
+      (rg[ref] || []).forEach(seg => clipToRegion(offsetLatLngs(seg, off)).forEach(run =>
+        L.polyline(run, { renderer: MAP.renderer, color: c,
+          weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round' }).addTo(MAP.L.rail)));
     });
     // Kystbanen (regional): real track geometry (key "kyst") if present, else
     // fall back to the station-based dashed line.
     if (rg.kyst) {
-      rg.kyst.forEach(seg => L.polyline(seg, { renderer: MAP.renderer, color: col.kystbanen,
-        weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: '3 7' }).addTo(MAP.L.rail));
+      rg.kyst.forEach(seg => clipToRegion(seg).forEach(run =>
+        L.polyline(run, { renderer: MAP.renderer, color: col.kystbanen,
+          weight: 2.2, opacity: .85, lineCap: 'round', lineJoin: 'round', dashArray: '3 7' }).addTo(MAP.L.rail)));
     } else {
       (S.meta.lines || []).filter(Ln => Ln.corridor === 'kystbanen').forEach(Ln => {
         const pts = Ln.stops.map(n => stMap[n]).filter(Boolean).map(s => [s.lat, s.lon]);
@@ -1305,6 +1351,7 @@ function drawStations() {
   MAP.L.stations.clearLayers();
   const col = LINE_COLORS();
   S.meta.stations.forEach(s => {
+    if (!inTrackedRegion(s.lat, s.lon)) return;
     // corridor is either a curated corridor name or a real S-tog line ref (A, C, …)
     const sc = col[s.corridor] || STOG_COLORS[s.corridor] || col.central;
     L.circleMarker([s.lat, s.lon], { renderer: MAP.renderer, radius: s.strain ? 4 : 3, color: sc, weight: 2, fillColor: cssVar('--surface'), fillOpacity: 1 })
@@ -1319,6 +1366,7 @@ function drawStationLabels() {
   lay.clearLayers();
   if (!S.meta || !MAP.map || MAP.map.getZoom() < TRANSIT_LABEL_ZOOM) return;
   S.meta.stations.forEach(s => {
+    if (!inTrackedRegion(s.lat, s.lon)) return;
     L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'st-name', html: esc(s.name), iconSize: [90, 12], iconAnchor: [-6, 6] }), interactive: false, keyboard: false }).addTo(lay);
   });
 }
