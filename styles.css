@@ -1,9 +1,9 @@
-@font-face { font-family: 'Archivo'; font-weight: 900; font-style: normal; font-display: swap;
-  src: url(fonts/archivo-900.woff2) format('woff2'); }
-@font-face { font-family: 'Archivo'; font-weight: 700; font-style: normal; font-display: swap;
-  src: url(fonts/archivo-700.woff2) format('woff2'); }
-@font-face { font-family: 'Archivo'; font-weight: 500; font-style: normal; font-display: swap;
-  src: url(fonts/archivo-500.woff2) format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 900; font-style: normal; font-display: swap;
+  src: url(fonts/nunito-900.woff2) format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 700; font-style: normal; font-display: swap;
+  src: url(fonts/nunito-700.woff2) format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 500; font-style: normal; font-display: swap;
+  src: url(fonts/nunito-500.woff2) format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-style: normal; font-display: swap;
   src: url(fonts/jetbrains-mono-400.woff2) format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-weight: 700; font-style: normal; font-display: swap;
@@ -11,8 +11,8 @@
 
 :root {
   color-scheme: light;
-  --font-display: 'Archivo', 'Arial Black', sans-serif;
-  --font-body:    'Archivo', -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: 'Nunito', 'Arial Rounded MT Bold', sans-serif;
+  --font-body:    'Nunito', -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-data:    'JetBrains Mono', "SF Mono", Menlo, Consolas, monospace;
   --plane:        #f1f2ee;
   --surface:      #ffffff;
