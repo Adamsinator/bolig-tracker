@@ -183,7 +183,11 @@ a { color: var(--condo); }
   border-radius:0; padding:6px 12px; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.01em;
   cursor:pointer; user-select:none; }
 .chip.on { background:var(--ink); border-color:var(--ink); color:var(--plane); }
-.chip.allbtn { font-weight:700; }
+/* the "select all" control, not a filter value itself — give it its own
+   accent so it doesn't just blend into the row of ~28 identical kommune
+   chips */
+.chip.allbtn { border-color:var(--accent); color:var(--accent); }
+.chip.allbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 
 /* ---- KPIs ---- */
 .kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; margin-bottom:18px; background:var(--ink); border:2px solid var(--ink); }
