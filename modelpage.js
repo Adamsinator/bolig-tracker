@@ -338,13 +338,22 @@ function setupLookup() {
   let items = [], hl = -1, timer, picked = null, lkType = 'villa', pickGen = 0, darIndex = null;
   const SUG_LIMIT = 10;
 
-  // Kick the ~33 MB self-hosted DAR index (#28) off right away, on page
-  // load, instead of on the first keystroke — someone typically looks at
-  // the KPI tiles/charts for a few seconds before touching this field, so
-  // by the time they finish typing 3+ characters it's very likely already
-  // loaded in the background rather than a multi-second wait appearing
-  // right after typing.
-  const darPromise = BT.loadDarAddresses().then(idx => { darIndex = idx; return idx; });
+  // Kick the ~33 MB self-hosted DAR index (#28) off in the background
+  // before the first keystroke — someone typically looks at the KPI
+  // tiles/charts for a few seconds before touching this field, so it's
+  // very likely already loaded by the time they finish typing 3+
+  // characters. But NOT synchronously at script-parse time: that raced
+  // this 33 MB fetch against the page's own critical listings/sold/meta
+  // data for bandwidth and made the whole page feel slow to open. Deferred
+  // to idle instead — still well before most visitors start typing, but no
+  // longer competing with what's needed to paint the page at all.
+  let darPromise = null;
+  const startDarPrefetch = () => {
+    if (!darPromise) darPromise = BT.loadDarAddresses().then(idx => { darIndex = idx; return idx; });
+    return darPromise;
+  };
+  if ('requestIdleCallback' in window) requestIdleCallback(startDarPrefetch, { timeout: 2000 });
+  else setTimeout(startDarPrefetch, 300);
 
   const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
   const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
@@ -401,7 +410,7 @@ function setupLookup() {
     }
     timer = setTimeout(async () => {
       try {
-        if (!darIndex) await darPromise;
+        if (!darIndex) await startDarPrefetch();
         const matches = BT.matchHusnumre(darIndex, q, SUG_LIMIT);
         items = expandToUnits(matches);
         sug.innerHTML = '';
