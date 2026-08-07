@@ -417,7 +417,7 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 @media (max-width:560px){
   .rate-table { font-size:12px; }
   .rate-table th, .rate-table td { padding:7px 6px; }
-  .rate-table th:first-child, .rate-table td:first-child { white-space:normal; word-break:break-word; }
+  .rate-table th:first-child, .rate-table td:first-child { white-space:normal; overflow-wrap:break-word; hyphens:auto; }
   .th-hint { display:none; }
   #rateTable .rate-table th:last-child, #rateTable .rate-table td:last-child { display:none; }
   #calcTable .rate-table th:last-child, #calcTable .rate-table td:last-child { display:none; }
@@ -481,7 +481,11 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 @media (max-width: 880px) {
   .grid { grid-template-columns:1fr; }
   .kpis { grid-template-columns:repeat(2,1fr); }
-  /* 5th KPI sits at normal half-width (was full-width span, which read as oversized) */
+  /* an odd tile count leaves a lone tile in the last row — without this the
+     empty cell next to it shows through as a solid black box, since .kpis'
+     own background (var(--ink)) is what paints the 1px hairlines between
+     tiles */
+  .kpis > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .map-body { flex-direction:column; align-items:stretch; }
   .map-side { flex-basis:auto; }
   /* even 2-up grid so a lone box doesn't stretch full-width and paired boxes
@@ -493,6 +497,11 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
      size the map closer to the region's aspect on narrow screens */
   #map { height:min(112vw,460px); min-height:0; }
   .commute-grid { grid-template-columns:1fr; }
+  /* #rateTiles's 4-column override (below) is an ID selector, so it otherwise
+     beats this block's .kpis rule even in here — restate it at this width so
+     renter.html's 4 rate tiles collapse to 2-across on mobile too, instead of
+     staying cramped at 4-across. */
+  #rateTiles { grid-template-columns:repeat(2,1fr); }
 }
 @media (max-width: 520px) {
   .brand h1{ font-size:16.5px; } .tagline{ font-size:11px; }
