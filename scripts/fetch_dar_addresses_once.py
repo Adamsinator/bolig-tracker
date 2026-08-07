@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-off: build data/dar_addresses.json — a self-hosted mirror of DAR
+"""One-off: build data/dar_husnumre.json + data/dar_enheder.json — a self-hosted mirror of DAR
 (Danmarks Adresseregister) for the 28 Region Hovedstaden kommuner, so the
 live address-lookup features (setupGeo() in app.js, setupLookup() in
 modelpage.js) never have to call DAWA or any other live address API again.
@@ -54,7 +54,8 @@ UA = {"User-Agent": "bolig-tracker/1.0 (+https://github.com/Adamsinator/bolig-tr
 DAR = "https://graphql.datafordeler.dk/DAR/v3"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(HERE, "..", "data")
-OUT = os.path.join(DATA_DIR, "dar_addresses.json")
+OUT_HUSNUMRE = os.path.join(DATA_DIR, "dar_husnumre.json")
+OUT_ENHEDER = os.path.join(DATA_DIR, "dar_enheder.json")
 CACHE_VEJIDS = os.path.join(DATA_DIR, "dar_addresses_cache_vejids.json")
 CACHE_HUSNUMMER = os.path.join(DATA_DIR, "dar_addresses_cache_husnummer.json")
 CACHE_ADRESSEPUNKTER = os.path.join(DATA_DIR, "dar_addresses_cache_adressepunkter.json")
@@ -420,28 +421,42 @@ def stage_write():
 
     h_blob = base64.b64encode(gzip.compress(json.dumps(h_flat, separators=(",", ":")).encode(), 9)).decode()
     a_blob = base64.b64encode(gzip.compress(json.dumps(a_flat, separators=(",", ":")).encode(), 9)).decode()
-    out = {
+    # Split into two files (#28 follow-up): husnumre is all that's needed to
+    # match on typed address text (and all index.html's home/work picker
+    # ever needs — building-level only); enheder is only needed to expand a
+    # matched house into its individual condo units, and used to be more
+    # than half the combined file's bytes for something most lookups never
+    # touch.
+    husnumre_out = {
         "source": "DAR/v3 via Datafordeler GraphQL — self-hosted address search, no DAWA dependency (#28)",
-        "note": "husnumre: flat [id_lokalId,adgangsadressebetegnelse,lat,lon]*N array — search the text "
-                "client-side, id_lokalId is DAWA's old adgangsadresseid/DAR_Husnummer.id_lokalId. "
-                "enheder: flat [id_lokalId,husnummerParentId,etagebetegnelse,doerbetegnelse]*M array — "
+        "note": "flat [id_lokalId,adgangsadressebetegnelse,lat,lon]*N array — search the text "
+                "client-side, id_lokalId is DAWA's old adgangsadresseid/DAR_Husnummer.id_lokalId.",
+        "husnumreCount": resolved,
+        "husnumreSkippedNoCoord": len(husnumre) - resolved,
+        "enc": "gzip+base64",
+        "husnumre": h_blob,
+    }
+    enheder_out = {
+        "source": "DAR/v3 via Datafordeler GraphQL — self-hosted address search, no DAWA dependency (#28)",
+        "note": "flat [id_lokalId,husnummerParentId,etagebetegnelse,doerbetegnelse]*M array — "
                 "id_lokalId here is DAWA's old adresse.id, and matches data/bbr_lookup.json's "
                 "adresseIdentificerer keys directly (confirmed live, #26 follow-up), so a picked unit "
                 "joins straight into that file with no extra resolution.",
-        "husnumreCount": resolved,
-        "husnumreSkippedNoCoord": len(husnumre) - resolved,
         "enhederCount": len(adresser),
         "enc": "gzip+base64",
-        "husnumre": h_blob,
         "enheder": a_blob,
     }
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as fh:
-        json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
-    mb = os.path.getsize(OUT) / 1e6
-    print(f"wrote data/dar_addresses.json — {resolved} husnumre "
-          f"({len(husnumre) - resolved} skipped, no coordinate), {len(adresser)} units, {mb:.2f} MB")
-    if mb > 60:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(OUT_HUSNUMRE, "w", encoding="utf-8") as fh:
+        json.dump(husnumre_out, fh, ensure_ascii=False, separators=(",", ":"))
+    with open(OUT_ENHEDER, "w", encoding="utf-8") as fh:
+        json.dump(enheder_out, fh, ensure_ascii=False, separators=(",", ":"))
+    mb_h = os.path.getsize(OUT_HUSNUMRE) / 1e6
+    mb_e = os.path.getsize(OUT_ENHEDER) / 1e6
+    print(f"wrote data/dar_husnumre.json ({mb_h:.2f} MB) — {resolved} husnumre "
+          f"({len(husnumre) - resolved} skipped, no coordinate)")
+    print(f"wrote data/dar_enheder.json ({mb_e:.2f} MB) — {len(adresser)} units")
+    if mb_h + mb_e > 60:
         sys.exit("too large to commit")
 
 

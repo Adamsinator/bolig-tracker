@@ -276,7 +276,7 @@ function setupGeo(which) {
     if (q.length < 3) { close(); return; }
     timer = setTimeout(async () => {
       try {
-        if (!darIndex) darIndex = await BT.loadDarAddresses();
+        if (!darIndex) darIndex = await BT.loadDarHusnumre();
         items = BT.matchHusnumre(darIndex, q, 6);
         sug.innerHTML = '';
         items.forEach((it, i) => {

@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=15">
 <link rel="manifest" href="manifest.webmanifest?v=15">
 <meta name="theme-color" content="#14181a">
-<link rel="stylesheet" href="styles.css?v=51">
+<link rel="stylesheet" href="styles.css?v=52">
 <style>
   .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
   .mdl-note strong { color:var(--ink); }
@@ -30,6 +30,7 @@
   .bar-cell i { display:block; height:9px; border-radius:0; background:var(--condo); }
   .lk-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-top:14px; }
   .lk-field label { font-size:11.5px; color:var(--ink-2); font-weight:700; text-transform:uppercase; letter-spacing:.02em; display:block; margin-bottom:5px; }
+  .lk-field label em { font-style:normal; text-transform:none; font-weight:500; letter-spacing:normal; color:var(--muted); font-size:10.5px; display:block; margin-top:2px; }
   .lk-field input, .lk-field select { width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface);
     border:1px solid var(--border); border-radius:0; padding:8px 10px; }
   .lk-hide { display:none; }
@@ -95,7 +96,7 @@
         <div class="lk-field"><label>Byggeår</label><input type="number" id="lkYear" min="1700" max="2026" placeholder="fx 1975"></div>
         <div class="lk-field"><label>Energimærke</label><select id="lkEnergy"><option value="">Ukendt</option><option>a</option><option>b</option><option>c</option><option>d</option><option>e</option><option>f</option><option>g</option></select></div>
         <div class="lk-field" id="lkFloorField"><label>Etage</label><input type="number" id="lkFloor" min="0" max="30" placeholder="fx 2"></div>
-        <div class="lk-field" id="lkLotField"><label>Grund (m²)</label><input type="number" id="lkLot" min="0" max="20000" placeholder="fx 600"></div>
+        <div class="lk-field" id="lkLotField"><label>Grund (m²) <em>udfyldes som estimat — ret hvis du kender det faktiske tal</em></label><input type="number" id="lkLot" min="0" max="20000" placeholder="fx 600"></div>
         <div class="lk-field" id="lkBsmField"><label>Kælder</label><select id="lkBsm"><option value="0">Nej</option><option value="1">Ja</option></select></div>
       </div>
       <button type="button" class="lk-btn" id="lkGo" disabled>Beregn vurdering</button>
@@ -361,8 +362,8 @@
 </div>
 
 <div id="tooltip" class="tooltip" hidden></div>
-<script src="model.js?v=7"></script>
-<script src="modelpage.js?v=7"></script>
+<script src="model.js?v=8"></script>
+<script src="modelpage.js?v=8"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

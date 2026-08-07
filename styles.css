@@ -156,6 +156,8 @@ a { color: var(--condo); }
 .geo-sug.show { display:block; }
 .geo-sug div { padding:8px 10px; font-size:13px; cursor:pointer; border-bottom:1px solid var(--border-2); }
 .geo-sug div:hover, .geo-sug div.hl { background:var(--surface-2); }
+.geo-sug div.lk-loading { cursor:default; color:var(--muted); font-style:italic; }
+.geo-sug div.lk-loading:hover { background:none; }
 .rad { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink-2); margin-top:8px; }
 .rad input[type=range] { flex:1; accent-color:var(--accent); }
 .rad b { color:var(--ink); font-family:var(--font-data); }

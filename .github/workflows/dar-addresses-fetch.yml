@@ -88,13 +88,13 @@ jobs:
             done
           fi
 
-      - name: Stage 5 — write data/dar_addresses.json
+      - name: Stage 5 — write data/dar_husnumre.json + data/dar_enheder.json
         run: python3 scripts/fetch_dar_addresses_once.py write
         env:
           DATAFORDELER_API: ${{ secrets.DATAFORDELER_API }}
       - name: Commit final data, remove caches
         run: |
-          git add data/dar_addresses.json
+          git add data/dar_husnumre.json data/dar_enheder.json
           git rm -f data/dar_addresses_cache_vejids.json data/dar_addresses_cache_husnummer.json \
                     data/dar_addresses_cache_adressepunkter.json data/dar_addresses_cache_adresser.json
           if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi

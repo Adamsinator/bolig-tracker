@@ -272,6 +272,15 @@ function loadGrundareal() {
       const key = Math.floor(la / CELL) + ',' + Math.floor(lo / CELL);
       (grid.get(key) || grid.set(key, []).get(key)).push([la, lo, logv]);
     }
+    // This is nearest-point, not a polygon match (see build_data.py's own
+    // _grundareal_lookup docstring) — fine for the ±40% comp-matching
+    // tolerance it was built for, but a coordinate with no nearby parcel at
+    // all (thin coverage, or just outside the fetched kommuner) can
+    // otherwise snap to some unrelated parcel a couple of km away and
+    // return a confident-looking but meaningless number. Refuse a match
+    // that far off instead — roughly 650 m, well inside the 3x3-cell
+    // (~3.3 km) search net.
+    const MAX_D = 0.006 ** 2;
     return (lat, lon) => {
       const ci = Math.floor(lat / CELL), cj = Math.floor(lon / CELL);
       let best = null, bestD = null;
@@ -285,7 +294,7 @@ function loadGrundareal() {
           }
         }
       }
-      return best === null ? null : Math.round(Math.pow(2, best / scale));
+      return (best === null || bestD > MAX_D) ? null : Math.round(Math.pow(2, best / scale));
     };
   })();
   return _grundarealPromise;
@@ -328,6 +337,14 @@ function setupLookup() {
   const seg = $('#lkTypeSeg');
   let items = [], hl = -1, timer, picked = null, lkType = 'villa', pickGen = 0, darIndex = null;
   const SUG_LIMIT = 10;
+
+  // Kick the ~33 MB self-hosted DAR index (#28) off right away, on page
+  // load, instead of on the first keystroke — someone typically looks at
+  // the KPI tiles/charts for a few seconds before touching this field, so
+  // by the time they finish typing 3+ characters it's very likely already
+  // loaded in the background rather than a multi-second wait appearing
+  // right after typing.
+  const darPromise = BT.loadDarAddresses().then(idx => { darIndex = idx; return idx; });
 
   const close = () => { sug.classList.remove('show'); sug.innerHTML = ''; hl = -1; };
   const mark = () => [...sug.children].forEach((c, i) => c.classList.toggle('hl', i === hl));
@@ -374,9 +391,17 @@ function setupLookup() {
     picked = null; updateGo();
     const q = input.value.trim();
     if (q.length < 3) { close(); return; }
+    // the common case: darPromise already resolved (prefetched on page
+    // load) while the user was typing — only the cold-start case (typing
+    // immediately) actually shows this
+    if (!darIndex) {
+      sug.innerHTML = '';
+      sug.append(el('div', { class: 'lk-loading' }, 'Henter adresseliste…'));
+      sug.classList.add('show');
+    }
     timer = setTimeout(async () => {
       try {
-        if (!darIndex) darIndex = await BT.loadDarAddresses();
+        if (!darIndex) await darPromise;
         const matches = BT.matchHusnumre(darIndex, q, SUG_LIMIT);
         items = expandToUnits(matches);
         sug.innerHTML = '';

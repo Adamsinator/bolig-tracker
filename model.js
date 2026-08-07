@@ -178,17 +178,35 @@
     return JSON.parse(text);
   }
 
-  let _darAddrPromise = null;
-  function loadDarAddresses() {
-    if (_darAddrPromise) return _darAddrPromise;
-    _darAddrPromise = (async () => {
-      const doc = await fetch('data/dar_addresses.json').then(r => r.json());
-      const [hFlat, aFlat] = await Promise.all([gunzipB64(doc.husnumre), gunzipB64(doc.enheder)]);
+  // Split into two files (#28 follow-up): husnumre (~12 MB) is all the
+  // building-level address text+coords needed to match on typed text;
+  // enheder (~21 MB, more than half the old combined 33 MB file) is only
+  // needed to expand a matched house into its individual condo units, and
+  // index.html's home/work picker never needs it at all — it only ever
+  // resolves a building-level coordinate. Loading them separately means a
+  // caller that only needs husnumre isn't paying for enheder's bytes/parse
+  // time too.
+  let _darHusnumrePromise = null;
+  function loadDarHusnumre() {
+    if (_darHusnumrePromise) return _darHusnumrePromise;
+    _darHusnumrePromise = (async () => {
+      const doc = await fetch('data/dar_husnumre.json').then(r => r.json());
+      const hFlat = await gunzipB64(doc.husnumre);
       const husnumre = [];
       for (let i = 0; i < hFlat.length - 3; i += 4) {
         const text = hFlat[i + 1];
         husnumre.push({ id: hFlat[i], text, textLower: text.toLowerCase(), lat: hFlat[i + 2], lon: hFlat[i + 3] });
       }
+      return { husnumre };
+    })();
+    return _darHusnumrePromise;
+  }
+  let _darEnhederPromise = null;
+  function loadDarEnheder() {
+    if (_darEnhederPromise) return _darEnhederPromise;
+    _darEnhederPromise = (async () => {
+      const doc = await fetch('data/dar_enheder.json').then(r => r.json());
+      const aFlat = await gunzipB64(doc.enheder);
       const enheder = new Map();   // husnummer id -> [{id, etage, doer}]
       for (let i = 0; i < aFlat.length - 3; i += 4) {
         const hn = aFlat[i + 1];
@@ -196,8 +214,15 @@
         if (!list) { list = []; enheder.set(hn, list); }
         list.push({ id: aFlat[i], etage: aFlat[i + 2] || null, doer: aFlat[i + 3] || null });
       }
-      return { husnumre, enheder };
+      return enheder;
     })();
+    return _darEnhederPromise;
+  }
+  let _darAddrPromise = null;
+  function loadDarAddresses() {
+    if (_darAddrPromise) return _darAddrPromise;
+    _darAddrPromise = Promise.all([loadDarHusnumre(), loadDarEnheder()])
+      .then(([{ husnumre }, enheder]) => ({ husnumre, enheder }));
     return _darAddrPromise;
   }
 
@@ -217,5 +242,6 @@
   BT.fairValue = fairValue;
   BT.median = median;
   BT.loadDarAddresses = loadDarAddresses;
+  BT.loadDarHusnumre = loadDarHusnumre;
   BT.matchHusnumre = matchHusnumre;
 })();
