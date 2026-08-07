@@ -170,8 +170,9 @@ a { color: var(--condo); }
 .card.wide { grid-column:1 / -1; }
 .filter { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
 .filter.grow { flex:1 1 200px; }
-.filter.check { flex-direction:row; align-items:center; gap:7px; color:var(--ink-2); font-size:13px;
+.filter.check { flex-direction:row; align-items:flex-start; gap:7px; color:var(--ink-2); font-size:13px;
   padding-bottom:6px; cursor:pointer; }
+.filter.check input { margin-top:2px; }
 .filter select, .filter input[type=search] {
   font:inherit; font-size:14px; color:var(--ink); background:var(--surface);
   border:1px solid var(--border); border-radius:0; padding:7px 9px; min-width:120px; }
@@ -517,4 +518,9 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
   .brand h1{ font-size:16.5px; } .tagline{ font-size:11px; }
   .kpi .k-val{ font-size:18px; }
   .topbar { margin:0 -16px 18px; padding:14px 16px; }
+  /* nav-link labels don't wrap and can't shrink below their text width, so
+     on a narrow phone two of them plus the "Opdateret" timestamp and the
+     theme toggle can add up to wider than the viewport — let the row wrap
+     instead of forcing horizontal scroll on the whole page. */
+  .topbar-right { flex-wrap:wrap; justify-content:flex-end; row-gap:8px; }
 }
