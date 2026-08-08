@@ -17,15 +17,15 @@
   --plane:        #f1f2ee;
   --surface:      #ffffff;
   --surface-2:    #e7e8e2;
-  --ink:          #33383c;
+  --ink:          #43494d;
   --ink-2:        #50575a;
   --muted:        #727779;
-  --grid:         rgba(51,56,60,.14);
-  --texture:      rgba(51,56,60,.05);
+  --grid:         rgba(67,73,77,.14);
+  --texture:      rgba(67,73,77,.05);
   --axis:         #c7cac2;
-  --border:       rgba(51,56,60,.18);
-  --border-2:     rgba(51,56,60,.09);
-  --board-bg:     #33383c;
+  --border:       rgba(67,73,77,.18);
+  --border-2:     rgba(67,73,77,.09);
+  --board-bg:     #43494d;
   --board-fg:     #f1f2ee;
   --accent:       #da291c;
   --geo:          #d8641f;
@@ -325,7 +325,7 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
   pointer-events:none; z-index:0; }
 .lcard .thumb.condo::after { content:"🏢"; }
 .lcard .thumb.villa::after { content:"🏡"; }
-.lcard .badge { position:absolute; top:0; left:0; z-index:1; background:rgba(51,56,60,.85); color:#fff;
+.lcard .badge { position:absolute; top:0; left:0; z-index:1; background:rgba(67,73,77,.85); color:#fff;
   font-family:var(--font-data); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
   padding:4px 8px; border-radius:0; }
 .lcard .badge.villa{ background:var(--villa); } .lcard .badge.condo{ background:var(--condo); }
@@ -357,8 +357,8 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 /* saved-home heart + "changed since you saved" note */
 .lcard .fav { position:absolute; top:8px; right:8px; z-index:2; width:28px; height:28px; padding:0;
   border:0; border-radius:0; cursor:pointer; font-size:15px; line-height:28px; text-align:center;
-  background:rgba(51,56,60,.55); color:#fff; transition:background .12s, color .12s; }
-.lcard .fav:hover { background:rgba(51,56,60,.8); }
+  background:rgba(67,73,77,.55); color:#fff; transition:background .12s, color .12s; }
+.lcard .fav:hover { background:rgba(67,73,77,.8); }
 .lcard .fav.on { color:var(--accent); background:rgba(255,255,255,.92); }
 .lcard .fav-change { margin-top:8px; padding-top:8px; border-top:1px solid var(--border-2); font-family:var(--font-data); font-size:11px; font-weight:700; }
 .lcard .fav-change.down { color:var(--good); }

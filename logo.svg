@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#14181a"/>
+  <rect width="512" height="512" fill="#43494d"/>
   <!-- roof -->
   <path d="M256 96 L438 246 L74 246 Z" fill="#ffffff"/>
   <rect x="74" y="238" width="364" height="18" fill="#ffffff"/>
