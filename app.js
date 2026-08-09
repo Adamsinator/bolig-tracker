@@ -478,7 +478,7 @@ function renderSold(f) {
     // gap = realiseret ift. udbud → negative when asking sits above realised (the usual case)
     if (ask && s && s.m2) rows.push({ label: names[m.slug] || m.slug, ask: Math.round(ask), sold: s.m2, n: s.n, gap: Math.round((s.m2 / ask - 1) * 100) });
   }
-  rows.sort((a, b) => a.gap - b.gap);   // most negative (asking most above realised) first
+  rows.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));   // biggest change first, whichever direction
   if (!rows.length) { box.append(el('div', { class: 'loading' }, 'Ingen overlap mellem udbud og salg for det valgte filter.')); if (note) note.textContent = ''; return; }
 
   const askC = cssVar('--ink-2'), soldC = cssVar('--condo');
