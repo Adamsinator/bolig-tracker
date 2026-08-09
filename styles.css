@@ -513,6 +513,25 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
      renter.html's 4 rate tiles collapse to 2-across on mobile too, instead of
      staying cramped at 4-across. */
   #rateTiles { grid-template-columns:repeat(2,1fr); }
+  /* ~29 kommune chips wrapped to a 3-across grid ran ~10 rows tall (over
+     400px) before a visitor reached any listings or the map at all — a
+     single horizontally-scrollable row keeps every chip reachable in the
+     same footprint as one line of text. "Alle kommuner" stays pinned first
+     since it's the one most people want without scrolling to it. */
+  .muni-chips { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:8px; }
+  .muni-chips .chip { flex:0 0 auto; }
+
+  /* tighter listing cards: less scrolling before reaching the map, without
+     touching .thumb (its stacked badges are already close to overlapping) */
+  .cards { gap:10px; }
+  .lcard .body { padding:9px 10px 10px; gap:1px; }
+  .lcard .price { font-size:15px; }
+  .lcard .addr { font-size:12.5px; }
+  .lcard .city { font-size:11.5px; }
+  .lcard .meta { margin-top:5px; gap:3px 8px; }
+  .lcard .phist { margin-top:6px; padding-top:6px; }
+  .lcard .valbadge, .lcard .hfbadge, .lcard .waterbadge { margin-top:5px; }
+  .lcard .compline { margin-top:4px; }
 }
 @media (max-width: 520px) {
   .brand h1{ font-size:16.5px; } .tagline{ font-size:11px; }

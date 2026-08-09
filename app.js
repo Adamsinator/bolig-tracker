@@ -145,7 +145,7 @@ function initUI() {
     if (/\b\d{4}\b/.test(S.search)) fitToPoints(filtered());
     else if (!S.search) fitToSelection();
   });
-  $('#loadMore').addEventListener('click', () => { S.shown = S.shown < 60 ? 60 : S.shown + 60; renderCards(filtered()); });
+  $('#loadMore').addEventListener('click', () => { S.shown += 30; renderCards(filtered()); });
   $('#resetFilters').addEventListener('click', resetFilters);
 
   // DST area select — only the corridor landsdele we can anchor to real kr/m²
