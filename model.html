@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=17">
 <link rel="manifest" href="manifest.webmanifest?v=18">
 <meta name="theme-color" content="#43494d">
-<link rel="stylesheet" href="styles.css?v=65">
+<link rel="stylesheet" href="styles.css?v=67">
 <style>
   .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
   .mdl-note strong { color:var(--ink); }
@@ -101,6 +101,8 @@
         <div class="lk-field" id="lkFloorField"><label>Etage</label><input type="number" id="lkFloor" min="0" max="30" placeholder="fx 2"></div>
         <div class="lk-field" id="lkLotField"><label>Grund (m²)</label><input type="number" id="lkLot" min="0" max="20000" placeholder="fx 600"><em>udfyldes som estimat — ret hvis du kender det faktiske tal</em></div>
         <div class="lk-field" id="lkBsmField"><label>Kælder</label><select id="lkBsm"><option value="0">Nej</option><option value="1">Ja</option></select></div>
+        <div class="lk-field" id="lkElevField"><label>Elevator</label><select id="lkElev"><option value="0">Nej</option><option value="1">Ja</option></select></div>
+        <div class="lk-field" id="lkBalcField"><label>Altan/terrasse</label><select id="lkBalc"><option value="0">Nej</option><option value="1">Ja</option></select></div>
       </div>
       <button type="button" class="lk-btn" id="lkGo" disabled>Beregn vurdering</button>
       <p class="lk-error" id="lkError"></p>
@@ -203,6 +205,8 @@
         <tr><td>Afstand til S-tog</td><td class="expr">ln(<var>d</var><sub>S-tog</sub> + 1) / 10</td><td class="cond">altid</td></tr>
         <tr><td>Tæt på S-tog</td><td class="expr">1[nær S-togsstation]</td><td class="cond">altid</td></tr>
         <tr><td>Boligtype</td><td class="expr">1[villa]</td><td class="cond">altid — ejerlejlighed er basislinjen</td></tr>
+        <tr><td>Elevator</td><td class="expr">1[elevator]</td><td class="cond">altid</td></tr>
+        <tr><td>Altan/terrasse</td><td class="expr">1[altan]</td><td class="cond">altid</td></tr>
         <tr><td>Afstand til metro</td><td class="expr">ln(<var>d</var><sub>metro</sub> + 1) / 10</td><td class="cond">kun hvis byggets datasæt har metrodata</td></tr>
         <tr><td>Tæt på metro</td><td class="expr">1[≤ 500 m fra metro]</td><td class="cond">samme betingelse som ovenfor</td></tr>
         <tr><td>Lokalt benchmark</td><td class="expr">ln(<var>comp</var>) / 12</td><td class="cond">kun hvis realiserede handler findes — se “Lokalt benchmark” nedenfor</td></tr>
@@ -365,8 +369,8 @@
 </div>
 
 <div id="tooltip" class="tooltip" hidden></div>
-<script src="model.js?v=10"></script>
-<script src="modelpage.js?v=11"></script>
+<script src="model.js?v=11"></script>
+<script src="modelpage.js?v=12"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

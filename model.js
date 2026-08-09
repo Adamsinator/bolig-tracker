@@ -86,7 +86,15 @@
       const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
         (((r.y || 1970) - 1970) / 50), (flnOf(r) / 5),
         (r.bsm > 0 ? 1 : 0), (r.t === 'villa' ? Math.log(lotOf(r) + 1) / 10 : 0), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
-        (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
+        // Elevator and altan/terrasse. Both were already in the data and offered
+        // as filters, but the model ignored them — and they were confounded with
+        // etage, which it did use: only 33 % of stuelejligheder have an altan
+        // against 66 % on 1. sal, so "stue is cheaper" and "stue rarely has an
+        // altan" were landing on the same coefficient. Together they cut the
+        // out-of-sample error by more than kælder or energimærke contribute
+        // (11,39 % → 11,22 %); elevator on its own does not, since it mostly
+        // tracks altan until the two can be separated.
+        (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0), (r.elev ? 1 : 0), (r.balc ? 1 : 0)];
       if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
       if (hasComp) f.push(Math.log(compOf(r)) / 12);
       if (hasPoi) f.push(Math.log(poiOf(r, 'sup') + 1) / 10, Math.log(poiOf(r, 'sch') + 1) / 10, Math.log(poiOf(r, 'day') + 1) / 10);
