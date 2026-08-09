@@ -189,6 +189,11 @@ a { color: var(--condo); }
    chips */
 .chip.allbtn { border-color:var(--accent); color:var(--accent); }
 .chip.allbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+/* "vis alle kommuner" toggle — only shown (see mobile breakpoint) once the
+   list is actually collapsed; styled as a lighter, dashed chip so it doesn't
+   read as another kommune to pick */
+.muni-toggle { display:none; border-style:dashed; background:transparent; color:var(--muted); }
+.muni-toggle:hover { color:var(--ink-2); border-color:var(--ink-2); }
 
 /* ---- KPIs ---- */
 .kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; margin-bottom:18px; background:var(--ink); border:2px solid var(--ink); }
@@ -517,12 +522,13 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
      staying cramped at 4-across. */
   #rateTiles { grid-template-columns:repeat(2,1fr); }
   /* ~29 kommune chips wrapped to a 3-across grid ran ~10 rows tall (over
-     400px) before a visitor reached any listings or the map at all — a
-     single horizontally-scrollable row keeps every chip reachable in the
-     same footprint as one line of text. "Alle kommuner" stays pinned first
-     since it's the one most people want without scrolling to it. */
-  .muni-chips { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:8px; }
-  .muni-chips .chip { flex:0 0 auto; }
+     400px) before a visitor reached any listings or the map at all. A
+     horizontally-scrolling row (tried first) fixed the height but hid most
+     chips behind a swipe with no visible cue — collapsing to the first 5
+     plus a "vis alle" toggle keeps the same familiar wrapped-grid layout,
+     just shorter until asked to expand. */
+  .muni-chips.collapsed .chip:not(.muni-toggle):nth-child(n+7) { display:none; }
+  .muni-toggle { display:inline-flex; }
 
   /* tighter listing cards: less scrolling before reaching the map, without
      touching .thumb (its stacked badges are already close to overlapping) */

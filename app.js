@@ -136,6 +136,16 @@ function initUI() {
     });
     c._slug = m.slug; wrap.append(c);
   });
+  // mobile: collapsed to "Alle kommuner" + first 5 by default, with a toggle
+  // to expand back to the full wrapped grid (desktop always shows it all —
+  // the toggle itself is hidden there via CSS, this only matters on mobile)
+  wrap.classList.add('collapsed');
+  const muniToggle = el('span', { class: 'chip muni-toggle' }, `Vis alle ${S.meta.municipalities.length} kommuner`);
+  chipKb(muniToggle, () => {
+    const collapsed = wrap.classList.toggle('collapsed');
+    muniToggle.textContent = collapsed ? `Vis alle ${S.meta.municipalities.length} kommuner` : 'Vis færre';
+  });
+  wrap.append(muniToggle);
 
   // filters
   const on = (id, key, isNum) => $(id).addEventListener('change', e => {
