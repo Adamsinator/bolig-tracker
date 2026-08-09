@@ -16,7 +16,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=17">
 <link rel="manifest" href="manifest.webmanifest?v=18">
 <meta name="theme-color" content="#43494d">
-<link rel="stylesheet" href="styles.css?v=62">
+<link rel="stylesheet" href="styles.css?v=63">
 <style>
   .prose { max-width:760px; margin:0 auto; }
   .prose h2 { font-size:15px; text-transform:uppercase; letter-spacing:.02em; margin:2px 0 8px; }
@@ -83,7 +83,8 @@
         <li><strong>Realiserede salgspriser</strong> (tinglyste handler) — <a href="https://www.boliga.dk" target="_blank" rel="noopener">Boliga</a></li>
         <li><strong>Prisindeks</strong> — <a href="https://www.statistikbanken.dk/EJ56" target="_blank" rel="noopener">Danmarks Statistik (EJ56)</a></li>
         <li><strong>Realkreditrenter</strong> — Danmarks Nationalbank (DNRNURI, via <a href="https://www.statistikbanken.dk" target="_blank" rel="noopener">Danmarks Statistik</a>)</li>
-        <li><strong>Adressesøgning &amp; kommunegrænser</strong> — <a href="https://dataforsyningen.dk" target="_blank" rel="noopener">Dataforsyningen / DAWA</a></li>
+        <li><strong>Adresser (DAR) &amp; kommunegrænser</strong> — <a href="https://dataforsyningen.dk" target="_blank" rel="noopener">Dataforsyningen</a> · adressesøgningen kører lokalt i browseren på en kopi af registret</li>
+        <li><strong>Bygnings- &amp; boligdata (BBR)</strong> — <a href="https://datafordeler.dk" target="_blank" rel="noopener">Datafordeleren</a></li>
         <li><strong>S-tog, metro &amp; letbane</strong> — © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-bidragydere (ODbL)</li>
         <li><strong>Trafikstøj (Lden, vejstøj 2022)</strong> — <a href="https://mst.dk/erhverv/tilskud-miljoeviden-og-data/data-og-databaser/miljoegis-data-om-natur-og-miljoe-paa-webkort/hent-data-udstillet-paa-miljoegis" target="_blank" rel="noopener">Miljøstyrelsen / MiljøGIS</a> (EU-støjkortlægningen, opdateres hvert 5. år)</li>
         <li><strong>Kortbaggrund</strong> — © OpenStreetMap-bidragydere, fliser © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a></li>
@@ -101,8 +102,11 @@
       et privatlivsvenligt, <strong>cookiefrit</strong> analyseværktøj, der tæller besøg
       uden cookies, uden at spore dig på tværs af websites og uden at indsamle
       personhenførbare oplysninger. Adresser du selv indtaster (fx i »Find bolig mellem
-      hjem og arbejde«) sendes til Dataforsyningens adressetjeneste for at slå koordinater
-      op og gemmes ikke af os.</p>
+      hjem og arbejde« eller »Vurdér en adresse«) <strong>forlader ikke din browser</strong>:
+      adressesøgningen slår op i et adresseregister, der hentes ned til din enhed, så der
+      sendes ingen forespørgsel til os eller til nogen tredjepart, når du taster.
+      Gemte boliger (hjertet) ligger i din browsers lokale lagring på din egen enhed —
+      ikke hos os — og følger derfor hverken med til en anden browser eller en anden enhed.</p>
       <p>Siden viser oplysninger om boliger til salg og tinglyste handler (adresse, pris,
       areal m.m.), som kan udgøre personoplysninger. Vi viser ikke ejeres navne og går
       ikke ud over, hvad der allerede er offentligt tilgængeligt hos kilderne.</p>

@@ -70,7 +70,8 @@ function tiles(fv, rows) {
   [
     { l: 'Typisk afvigelse', v: fv.mape != null ? '±' + fv.mape + ' %' : '–', s: 'uden for stikprøven' },
     { l: 'Usikkerhedsspænd', v: band, s: '10–90 % af boligerne' },
-    { l: 'Forklaringsgrad (R²)', v: fv.r2 != null ? fv.r2.toFixed(2) : '–', s: 'af variationen i kr/m²' },
+    // toFixed is dot-decimal regardless of locale — the rest of the page is da-DK
+    { l: 'Forklaringsgrad (R²)', v: fv.r2 != null ? fv.r2.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '–', s: 'af variationen i kr/m²' },
     { l: 'Boliger i modellen', v: nf(rows.length), s: 'udbudte boliger' },
     { l: 'Holdt udenfor', v: nf(fv.odd.size), s: 'atypiske boliger' },
   ].forEach(k => box.append(el('div', { class: 'kpi' },

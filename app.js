@@ -347,8 +347,12 @@ function filtered() {
     if (S.rooms && (r.r || 0) < S.rooms) return false;
     if (S.areaMin && (r.a || 0) < S.areaMin) return false;
     if (S.areaMax && (r.a || 0) > S.areaMax) return false;
-    if (S.lotMin && (r.lot || 0) < S.lotMin) return false;          // villa lots
-    if (S.floorMin != null && r.t === 'condo' && (r.fln == null || r.fln < S.floorMin)) return false;
+    // Grund and etage are type-specific (the labels say so), so they also imply
+    // the type: a condo's "lot" is the whole estate's shared land — often
+    // 100.000+ m² — so applying it across types made a big-garden search return
+    // *more flats than houses*. Likewise "min. etage" has no meaning for a villa.
+    if (S.lotMin && (r.t !== 'villa' || (r.lot || 0) < S.lotMin)) return false;
+    if (S.floorMin != null && (r.t !== 'condo' || r.fln == null || r.fln < S.floorMin)) return false;
     if (S.yearMin && (r.y || 0) < S.yearMin) return false;
     if (S.daysMax && (r.d || 0) > S.daysMax) return false;
     if (S.energyMin && energyRank(r.e) < energyRank(S.energyMin)) return false;
@@ -421,8 +425,14 @@ function renderKPIs(f) {
     { label: 'Median liggetid', val: median(days) != null ? Math.round(median(days)) + ' <small>dage</small>' : '–',
       sub: 'boliger til salg nu — ikke fuldført salgstid', html: true,
       title: 'Hvor længe de boliger, der er til salg lige nu, har ventet indtil videre — ikke hvor lang tid det i gennemsnit tager at sælge en bolig (den tæller for boliger, der endnu ikke er solgt).' },
+    // Confounded by how long each home has been listed: a home on the market
+    // for a week has had no chance to cut (0,3 % of those <14 dage have), one
+    // sitting past six months usually has (63 %). So this tracks the age mix of
+    // what's for sale as much as seller behaviour — say so rather than let it
+    // read as "a third of sellers drop their price".
     { label: 'Andel med prisnedslag', val: cutPct + ' <small>%</small>',
-      sub: cutMed != null ? `af boligerne — typisk ${cutMed.toLocaleString('da-DK', { maximumFractionDigits: 1 })} % under første pris` : 'af boligerne har sat prisen ned', html: true },
+      sub: cutMed != null ? `af boligerne — typisk ${cutMed.toLocaleString('da-DK', { maximumFractionDigits: 1 })} % under første pris` : 'af boligerne har sat prisen ned', html: true,
+      title: 'Andelen afhænger stærkt af, hvor længe boligerne har været til salg: under 3 % af dem, der har ligget under en måned, har sat prisen ned, mod omkring 60 % af dem, der har ligget over et halvt år. Tallet siger derfor lige så meget om udbuddets alderssammensætning som om sælgernes adfærd.' },
   ];
   const box = $('#kpis'); box.innerHTML = ''; box.removeAttribute('aria-busy');
   kpis.forEach(k => box.append(el('div', { class: 'kpi', ...(k.title ? { title: k.title } : {}) },
@@ -528,10 +538,13 @@ function renderSold(f) {
     let txt = `Negativ forskel = de faktisk tinglyste salgspriser ligger under udbudspriserne. Medianforskel (${ttxt}): ${(medGap >= 0 ? '+' : '') + medGap} %.`;
     const mix = S.sold && S.sold.saleMix && S.sold.saleMix.pct;
     if (mix) {
+      // these come straight off the JSON as numbers — format them like every
+      // other figure on the site (Danish decimal comma), not "90.9"
+      const pc = v => v.toLocaleString('da-DK', { maximumFractionDigits: 1 });
       const parts = [];
-      if (mix.almindelig != null) parts.push(`${mix.almindelig} % almindelige`);
-      if (mix.familie != null) parts.push(`${mix.familie} % familiehandler`);
-      if (mix.auktion != null) parts.push(`${mix.auktion} % auktioner`);
+      if (mix.almindelig != null) parts.push(`${pc(mix.almindelig)} % almindelige`);
+      if (mix.familie != null) parts.push(`${pc(mix.familie)} % familiehandler`);
+      if (mix.auktion != null) parts.push(`${pc(mix.auktion)} % auktioner`);
       if (parts.length) txt += ` Handelstyper (seneste 12 mdr.): ${parts.join(', ')}.`;
     }
     note.textContent = txt + ' Kilde: Boliga/tinglysning.';
@@ -1631,18 +1644,32 @@ function renderMapFacts(f) {
   const mNearN = mNearRows.length;
   const mFarMed = median(mFarArr);
   const facts = [];
-  if (meds.length) facts.push(['Dyreste kommune', `${meds[0].n} · ${m2(meds[0].v)}`]);
-  if (meds.length > 1) facts.push(['Billigste kommune', `${meds[meds.length - 1].n} · ${m2(meds[meds.length - 1].v)}`]);
+  // "dyreste/billigste kommune" only says anything when there's more than one
+  // to rank — with a single kommune selected, "Dyreste kommune: Halsnæs" is
+  // just its median wearing a superlative. Show a plain median instead.
+  if (meds.length > 1) {
+    facts.push(['Dyreste kommune', `${meds[0].n} · ${m2(meds[0].v)}`]);
+    facts.push(['Billigste kommune', `${meds[meds.length - 1].n} · ${m2(meds[meds.length - 1].v)}`]);
+  } else if (meds.length === 1) {
+    facts.push(['Median pris/m²', `${meds[0].n} · ${m2(meds[0].v)}`]);
+  }
+  // With both types shown, part of any gap is composition rather than location:
+  // stationsnære områder are denser, so a larger share of what's for sale there
+  // is flats, which carry a higher kr/m² than houses to begin with. Selecting a
+  // single boligtype recomputes these on that type alone and removes the effect.
+  const mixNote = S.type === 'all'
+    ? ' Med begge boligtyper valgt dækker tallet også over, at der er flere lejligheder (højere kr/m²) tæt på stationerne — vælg én boligtype for at se præmien uden den sammensætningseffekt.'
+    : '';
   if (nearMed && farMed) {
     const prem = Math.round((nearMed / farMed - 1) * 100);
-    const strainTitle = 'Sammenlignet med boliger i samme kommuner (nogle kommuner har slet ikke S-tog i nærheden) — ellers ville præmien blande S-togsnærhed sammen med prisforskellen til de kommuner, S-toget ikke når ud til.';
+    const strainTitle = 'Sammenlignet med boliger i samme kommuner (nogle kommuner har slet ikke S-tog i nærheden) — ellers ville præmien blande S-togsnærhed sammen med prisforskellen til de kommuner, S-toget ikke når ud til.' + mixNote;
     facts.push(['Nær S-tog vs. længere væk', `${m2(nearMed)} <small>mod ${m2(farMed)}</small>`, strainTitle]);
     facts.push(['S-togs­præmie', (prem >= 0 ? '+' : '') + prem + ' <small>% pr. m²</small>', strainTitle]);
   }
   if (mNearMed && mFarMed && mNearN >= 8 && mFarArr.length >= 8) {
     const mp = Math.round((mNearMed / mFarMed - 1) * 100);
     facts.push(['Metropræmie', (mp >= 0 ? '+' : '') + mp + ' <small>% pr. m²</small>',
-      'Sammenlignet med boliger i samme kommuner (metro findes kun i få, i forvejen dyre kommuner) — ellers ville præmien blande metronærhed sammen med prisforskellen mellem centrum og resten af regionen.']);
+      'Sammenlignet med boliger i samme kommuner (metro findes kun i få, i forvejen dyre kommuner) — ellers ville præmien blande metronærhed sammen med prisforskellen mellem centrum og resten af regionen.' + mixNote]);
   }
   facts.forEach(([l, v, title]) => box.append(el('div', { class: 'mf', ...(title ? { title } : {}) }, el('div', { class: 'mf-l' }, l), el('div', { class: 'mf-v', html: v }))));
 }
@@ -1782,7 +1809,8 @@ function renderCards(f) {
   $('#listCount').textContent = '· ' + f.length.toLocaleString('da-DK');
   const box = $('#cards'); box.innerHTML = ''; box.removeAttribute('aria-busy');
   rows.slice(0, S.shown).forEach(r => box.append(card(r)));
-  const more = $('#loadMore'); more.hidden = rows.length <= S.shown; more.textContent = `Vis flere (${(rows.length - S.shown).toLocaleString('da-DK')} tilbage)`;
+  const more = $('#loadMore'); const left = Math.max(0, rows.length - S.shown);
+  more.hidden = left === 0; more.textContent = `Vis flere (${left.toLocaleString('da-DK')} tilbage)`;
 }
 function card(r) {
   const a = el('a', { class: 'lcard', href: r.url || '#', target: '_blank', rel: 'noopener' });

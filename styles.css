@@ -447,6 +447,7 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .load-more { display:block; margin:16px auto 0; background:var(--surface); color:var(--ink);
   border:1px solid var(--ink); border-radius:0; padding:9px 24px; font:inherit; font-weight:700;
   text-transform:uppercase; font-size:12px; letter-spacing:.02em; cursor:pointer; }
+.load-more[hidden] { display:none; }   /* [hidden] must beat display:block */
 .load-more:hover { background:var(--ink); color:var(--plane); }
 
 /* ---- loading skeletons ---- */

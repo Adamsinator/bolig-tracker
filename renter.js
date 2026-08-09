@@ -16,6 +16,9 @@ const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(
 const MONTHS_DA = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 const fmtYM = ym => { const [y, m] = String(ym).split('M'); return (MONTHS_DA[+m - 1] || '') + ' ' + y; };
 const pct = v => v == null ? '–' : v.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %';
+// same value must not read as "3,19 %" in the table and "3.19" on the chart —
+// charts used raw toFixed(), which is always dot-decimal regardless of locale
+const dec = (v, n) => v.toLocaleString('da-DK', { minimumFractionDigits: n, maximumFractionDigits: n });
 const kr = v => v == null ? '–' : Math.round(v).toLocaleString('da-DK') + ' kr.';
 // grouped-number inputs: read digits only, keep the field showing 600.000 etc.
 const numVal = id => { const e = $(id); return e ? (+String(e.value).replace(/\D/g, '') || 0) : 0; };
@@ -191,14 +194,14 @@ function renderCurve(mo) {
   const X = i => padL + (pts.length === 1 ? plotW / 2 : i / (pts.length - 1) * plotW);
   const Y = v => padT + plotH - (v - lo) / (hi - lo) * plotH;
   const svg = svel('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
-  for (let g = 0; g <= 4; g++) { const yv = lo + (hi - lo) * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = yv.toFixed(1) + '%'; svg.append(tx); }
+  for (let g = 0; g <= 4; g++) { const yv = lo + (hi - lo) * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = dec(yv, 1) + ' %'; svg.append(tx); }
   let d = '';
   pts.forEach((p, i) => { d += (i ? ' L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.v).toFixed(1); });
   svg.append(svel('path', { d, fill: 'none', stroke: cssVar('--condo') || '#0a4bb5', 'stroke-width': 2.6, 'stroke-linejoin': 'round' }));
   pts.forEach((p, i) => {
     const g = svel('g');
     g.append(svel('circle', { cx: X(i), cy: Y(p.v), r: 4, fill: cssVar('--condo') || '#0a4bb5' }));
-    const vt = svel('text', { x: X(i), y: Y(p.v) - 8, 'text-anchor': 'middle', class: 'bar-val' }); vt.textContent = p.v.toFixed(2); g.append(vt);
+    const vt = svel('text', { x: X(i), y: Y(p.v) - 8, 'text-anchor': 'middle', class: 'bar-val' }); vt.textContent = dec(p.v, 2); g.append(vt);
     const lx = X(i), ly = H - padB + 16; const lt = svel('text', { x: lx, y: ly, class: 'axis-txt', 'text-anchor': 'end', transform: `rotate(-35 ${lx} ${ly})` }); lt.textContent = p.lab; g.append(lt);
     g.addEventListener('mousemove', e => showTip(`<div class="tt-title">${p.full}</div><div class="tt-row"><span>Effektiv rente</span><b>${pct(p.v)}</b></div>`, e.clientX, e.clientY));
     g.addEventListener('mouseleave', hideTip);
@@ -400,7 +403,7 @@ function lineChart(mount, xLabels, series) {
   const X = i => padL + (pts === 1 ? plotW / 2 : i / (pts - 1) * plotW);
   const Y = v => padT + plotH - (v - lo) / (hi - lo) * plotH;
   const svg = svel('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' });
-  for (let g = 0; g <= 4; g++) { const yv = lo + (hi - lo) * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = yv.toFixed(1) + '%'; svg.append(tx); }
+  for (let g = 0; g <= 4; g++) { const yv = lo + (hi - lo) * g / 4, y = Y(yv); svg.append(svel('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'gridline' })); const tx = svel('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', class: 'axis-txt' }); tx.textContent = dec(yv, 1) + ' %'; svg.append(tx); }
   const N = pts, step = Math.max(1, Math.ceil((N - 1) / 6));
   for (let i = 0; i < N; i += step) { const x = X(i); const tx = svel('text', { x, y: H - padB + 15, 'text-anchor': 'middle', class: 'axis-txt' }); tx.textContent = xLabels[i]; svg.append(tx); }
   series.forEach(s => {

@@ -64,11 +64,19 @@
     const hasNoise = rows.some(r => r.db != null);
     const medDb = hasNoise ? (median(rows.map(r => r.db).filter(v => v != null)) || 55) : 55;
     const dbOf = r => (r.db != null ? r.db : medDb);
+    // Lot area is only a villa feature. A condo's "lot" is the whole estate's
+    // shared land — a 99 m² flat can carry 150.000 m² — so feeding it on the
+    // same slope as a house's garden puts a meaningless number into every
+    // flat's prediction and drags the coefficient off the villa relationship.
+    // Missing villa lots are median-imputed rather than left at 0, which would
+    // read as "no land at all" — same convention as poi/geo/noise/comps above.
+    const medLot = median(rows.filter(r => r.t === 'villa' && r.lot > 0).map(r => r.lot)) || 800;
+    const lotOf = r => (r.lot > 0 ? r.lot : medLot);
     const feat = r => {
       const la = Math.log(r.a);
       const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
         (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
-        (r.bsm > 0 ? 1 : 0), (Math.log((r.lot || 0) + 1) / 10), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
+        (r.bsm > 0 ? 1 : 0), (r.t === 'villa' ? Math.log(lotOf(r) + 1) / 10 : 0), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
         (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
       if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);
       if (hasComp) f.push(Math.log(compOf(r)) / 12);
