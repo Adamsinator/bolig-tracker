@@ -853,12 +853,12 @@ function renderScatter(f) {
   const bits = stats.filter(s => s.r != null).map(s =>
     `${s.t === 'villa' ? 'villaer' : 'ejerlejligheder'} ${dir(s.r)} (r = ${s.r.toFixed(2).replace('.', ',')})`);
   mount.append(el('p', { class: 'chart-note' },
-    'Hver prik er en bolig til salg lige nu — ikke en tidsserie. '
-    + (bits.length ? `I det valgte udsnit: ${bits.join(', ')}. ` : '')
+    'Hver prik er en bolig til salg nu, ikke en tidsserie. '
+    + (bits.length ? `${bits.join(', ').replace(/^./, c => c.toUpperCase())}. ` : '')
     + (stats.length > 1
-      ? 'Den samlede sky kan se flad ud, selvom hver boligtype for sig stiger: store boliger er oftere villaer, som har lavere m²-pris end lejligheder (sammensætningseffekt). '
+      ? 'Skyen kan virke flad samlet set, fordi store boliger oftere er villaer med lavere m²-pris — hver type for sig stiger. '
       : '')
-    + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} af ${pts.length.toLocaleString('da-DK')} boliger vises ikke i skyen: dem uden for ${Math.round(xd0)}–${Math.round(xd1)} m² (yderste ~1 % i hver ende af størrelsen) eller uden for ${Math.round(yd0 / 1000)}k–${Math.round(yd1 / 1000)}k kr/m² (yderste ~2 % i hver ende af m²-prisen). De holdes uden for skalaen, så skyen ikke klumper mod akserne — men de tælles stadig med i medianlinjerne og i alle nøgletal ovenfor.` : '')));
+    + (hidden > 0 ? `${hidden.toLocaleString('da-DK')} ekstreme boliger (yderste ~1–2 %) er udeladt af skyen men tæller stadig med i tallene ovenfor.` : '')));
 }
 
 /* ===== sold/removed: listings that vanished from boligsiden — not visible in the
