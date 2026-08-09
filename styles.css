@@ -463,7 +463,10 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 /* ---- per-kommune stats (click a bar in the kommune chart) ---- */
 #chartScatter { max-width:600px; }
 .muni-stats { max-width:760px; margin:8px auto 0; }
-.kstats-head { text-align:center; font-size:13px; margin-bottom:10px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; }
+.kstats-head { display:flex; align-items:center; justify-content:center; gap:10px; font-size:13px; margin-bottom:10px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; }
+.kstats-close { margin-left:auto; border:1px solid var(--border); background:var(--surface); color:var(--ink-2);
+  border-radius:0; padding:4px 10px; font:inherit; font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.01em; cursor:pointer; }
+.kstats-close:hover { background:var(--surface-2); color:var(--ink); }
 .kstats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
 .kstat { background:var(--surface-2); border:1px solid var(--border-2); border-radius:0; padding:10px 12px; text-align:center; }
 .kstat-v { font-family:var(--font-data); font-size:16px; font-weight:700; letter-spacing:-.01em; }

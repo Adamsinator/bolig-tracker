@@ -42,6 +42,20 @@ const num = n => n == null ? '–' : Math.round(n).toLocaleString('da-DK');
 const median = arr => { if (!arr.length) return null; const a = [...arr].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 const quantile = (arr, q) => { if (!arr.length) return null; const a = [...arr].sort((x, y) => x - y); const p = (a.length - 1) * q, lo = Math.floor(p); return a[lo] + (a[lo + 1] - a[lo] || 0) * (p - lo); };
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+// Evenly-spaced tick indices into an n-long axis, always including the last
+// one. Appending it unconditionally (rather than swapping it in) could land
+// it less than a full step past the previous tick — e.g. quarterly axes as
+// more data accumulates, or decade axes with gaps — crowding two labels into
+// unreadable overlapping text.
+const thinTicks = (n, maxLabels) => {
+  const step = Math.max(1, Math.ceil((n - 1) / (maxLabels - 1))), idx = [];
+  for (let i = 0; i < n; i += step) idx.push(i);
+  const last = n - 1;
+  if (idx[idx.length - 1] !== last) {
+    if (last - idx[idx.length - 1] < step) idx[idx.length - 1] = last; else idx.push(last);
+  }
+  return idx;
+};
 // one colour per entity: ejerlejlighed = blue, villa = orange (blue when both)
 const typeColor = () => cssVar(S.type === 'villa' ? '--villa' : '--condo');
 const haversine = (la1, lo1, la2, lo2) => {
@@ -387,15 +401,21 @@ function renderKPIs(f) {
   const typeLabel = S.type === 'all' ? 'ejerl. + villaer' : (S.type === 'condo' ? 'ejerlejligheder' : 'villaer');
   const kpis = [
     { label: 'Boliger til salg', val: f.length.toLocaleString('da-DK'), sub: typeLabel },
-    { label: 'Median pris', val: krM(median(prices)),
-      sub: prices.length ? `Midterste 50 %: ${krM(quantile(prices, .25))} – ${krM(quantile(prices, .75))} · dyreste ${krM(Math.max(...prices))}` : '' },
+    { label: 'Median pris', val: krM(median(prices)), sub: '' },
     { label: 'Median pris/m²', val: m2(median(m2p)), sub: 'typisk kvadratmeterpris' },
-    { label: 'Median liggetid', val: median(days) != null ? Math.round(median(days)) + ' <small>dage</small>' : '–', sub: 'til salg på boligsiden', html: true },
+    // days-on-market for homes still listed *right now* (boligsiden's own
+    // daysOnMarket, a running count that hasn't stopped since none of these
+    // have sold) — not time-to-sell for completed transactions. A snapshot
+    // of active listings skews toward slow sellers (fast ones exit the pool
+    // quickly), so this reads higher than a true average time-to-sell would.
+    { label: 'Median liggetid', val: median(days) != null ? Math.round(median(days)) + ' <small>dage</small>' : '–',
+      sub: 'boliger til salg nu — ikke fuldført salgstid', html: true,
+      title: 'Hvor længe de boliger, der er til salg lige nu, har ventet indtil videre — ikke hvor lang tid det i gennemsnit tager at sælge en bolig (den tæller for boliger, der endnu ikke er solgt).' },
     { label: 'Andel med prisnedslag', val: cutPct + ' <small>%</small>',
       sub: cutMed != null ? `af boligerne — typisk ${cutMed.toLocaleString('da-DK', { maximumFractionDigits: 1 })} % under første pris` : 'af boligerne har sat prisen ned', html: true },
   ];
   const box = $('#kpis'); box.innerHTML = ''; box.removeAttribute('aria-busy');
-  kpis.forEach(k => box.append(el('div', { class: 'kpi' },
+  kpis.forEach(k => box.append(el('div', { class: 'kpi', ...(k.title ? { title: k.title } : {}) },
     el('div', { class: 'k-label' }, k.label),
     el('div', { class: 'k-val', html: k.val }),
     el('div', { class: 'k-sub' }, k.sub || ''))));
@@ -537,9 +557,16 @@ function renderSoldTrend(f) {
   if (S.type !== 'condo') { series.push({ name: 'Villa/hus', color: cssVar('--villa'), values: seriesFor('villa') }); const a = askMed('villa'); if (a) refs.push({ value: Math.round(a), color: cssVar('--villa'), label: 'udbud nu' }); }
   const N = quarters.length; let idxs;
   if (N <= 8) idxs = quarters.map((_, i) => i);
-  else { const step = Math.ceil((N - 1) / 6); idxs = []; for (let i = 0; i < N; i += step) idxs.push(i); if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1); }
+  else idxs = thinTicks(N, 7);
   lineChart(mount, quarters, series, { legend: true, yfmt: kc, tfmt: m2, refs, xticks: idxs.map(i => [i, quarters[i]]), empty: 'Ingen realiserede salgsdata for det valgte område.' });
-  if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = nuværende udbudsniveau. Kilde: Boliga/tinglysning.`;
+  // The gap to "udbud nu" is usually bigger here than the Udbud-vs-realiseret
+  // chart's overall 12-month figure suggests, and that's expected, not a bug:
+  // tinglysning (deed registration) typically lags the agreed price by weeks
+  // to months, so the newest quarter reflects deals struck earlier — in a
+  // rising market it understates where prices are today. It's also the
+  // *current*, still-filling quarter, so its median can still move as more
+  // sales register.
+  if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = nuværende udbudsniveau. Seneste kvartal er endnu ikke afsluttet, og tinglysning sker typisk uger–måneder efter selve handlen — så gabet til "udbud nu" er normalt større end den generelle udbud/realiseret-forskel. Kilde: Boliga/tinglysning.`;
 }
 
 // Realised kr/m² by BBR build-decade (corridor-wide), condo vs. villa — shows
@@ -556,9 +583,7 @@ function renderSoldDecade() {
   if (S.type !== 'condo' && bd.villa) series.push({ name: 'Villa/hus', color: cssVar('--villa'), values: decades.map(d => bd.villa[d] ?? null) });
   if (!series.length) { box.append(el('div', { class: 'loading' }, 'Ingen data for den valgte boligtype.')); if (note) note.textContent = ''; return; }
   // thin the decade labels so they don't overlap (show ~8 evenly, always incl. last)
-  const dN = decades.length, dStep = Math.max(1, Math.ceil((dN - 1) / 7)), dIdx = [];
-  for (let i = 0; i < dN; i += dStep) dIdx.push(i);
-  if (dIdx[dIdx.length - 1] !== dN - 1) dIdx.push(dN - 1);
+  const dIdx = thinTicks(decades.length, 8);
   lineChart(box, xlab, series, { legend: true, yfmt: kc, tfmt: m2, xticks: dIdx.map(i => [i, xlab[i]]) });
   if (note) note.textContent = 'Median realiseret kr/m² efter opførelsesårti (BBR), hele korridoren, seneste 12 mdr. Kilde: Boliga/tinglysning + BBR.';
 }
@@ -601,9 +626,12 @@ function vbars(mount, rows, opt = {}) {
 }
 
 // Vertical columns, one per kommune — the (long) names angled so all ~14 fit.
-// Click a column to see that kommune's key numbers below the chart.
+// Click a column to see that kommune's key numbers below the chart; click it
+// again (or the ✕ in the stats box) to close it.
 let muniSel = null;
+let muniChartF = null;   // last filtered rows, so the ✕ close button can re-render without its own copy
 function renderMuniChart(f) {
+  muniChartF = f;
   const byM = new Map();
   f.forEach(r => { (byM.get(r.muni) || byM.set(r.muni, []).get(r.muni)).push(r.m2p); });
   const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
@@ -618,6 +646,7 @@ function renderMuniChart(f) {
   });
   renderMuniStats();
 }
+function closeMuniStats() { muniSel = null; renderMuniChart(muniChartF); }
 function renderMuniStats() {
   const box = $('#chartMuniStats'); if (!box) return;
   box.innerHTML = '';
@@ -641,7 +670,9 @@ function renderMuniStats() {
     stat('Udbud vs. salg', soldGap != null ? (soldGap >= 0 ? '+' : '') + soldGap + ' %' : '–'),
     stat('Realiseret str.', sv && sv.size ? Math.round(sv.size) + ' m²' : '–'),
     stat('Byggeår (solgt)', sv && sv.year ? String(sv.year) : '–'));
-  box.append(el('div', { class: 'kstats-head' }, el('b', {}, name), el('span', { class: 'src' }, ' · ' + (S.type === 'all' ? 'alle boligtyper' : S.type === 'condo' ? 'ejerlejligheder' : 'villaer'))));
+  const closeBtn = el('button', { type: 'button', class: 'kstats-close', 'aria-label': 'Luk' }, '✕ Luk');
+  closeBtn.addEventListener('click', closeMuniStats);
+  box.append(el('div', { class: 'kstats-head' }, el('b', {}, name), el('span', { class: 'src' }, ' · ' + (S.type === 'all' ? 'alle boligtyper' : S.type === 'condo' ? 'ejerlejligheder' : 'villaer')), closeBtn));
   box.append(wrap);
   // rooms + energy-label mix for the selected kommune
   const rows = S.all.filter(r => r.muni === muniSel && (S.type === 'all' || r.t === S.type));
@@ -652,6 +683,7 @@ function renderMuniStats() {
   const energyE = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
     .map((l, i) => ({ label: l.toUpperCase(), count: rows.filter(r => String(r.e || '').toLowerCase().startsWith(l)).length, color: eCol[i] }));
   const blk = (title, entries) => el('div', { class: 'dist-block' }, el('div', { class: 'dist-title' }, title), distBar(entries));
+  box.append(el('p', { class: 'chart-note' }, `Fordeling af værelsesantal og energimærke blandt boligerne til salg i ${name} lige nu — bredden af hvert farvet segment er dets andel; hold musen over et segment for tal.`));
   box.append(el('div', { class: 'dist-wrap' }, blk('Værelser', roomsE), blk('Energimærke', energyE)));
 }
 // segmented proportion bar for a small distribution
@@ -870,6 +902,18 @@ function lineChart(mount, xLabels, series, opt = {}) {
     for (let i = 0; i < pts; i++) { if (b.lo[i] != null && b.hi[i] != null) seg.push(i); else flush(); }
     flush();
   });
+  // vertical context markers (e.g. "tracked area changed here") — behind the
+  // data lines, since they're a backdrop annotation, not a data series
+  (opt.vmarks || []).forEach(vm => {
+    if (vm.index == null || vm.index < 0 || vm.index >= pts) return;
+    const x = X(vm.index);
+    svg.append(svel('line', { x1: x, y1: padT, x2: x, y2: padT + plotH, stroke: vm.color || '#888', 'stroke-width': 1.3, 'stroke-dasharray': '4 3', opacity: 0.7 }));
+    if (vm.label) {
+      const t = svel('text', { x: x + 4, y: padT + 10, 'text-anchor': 'start', class: 'axis-txt' });
+      t.textContent = vm.label; if (vm.color) t.setAttribute('fill', vm.color);
+      svg.append(t);
+    }
+  });
   series.forEach(s => {
     let d = '', started = false;
     s.values.forEach((v, i) => { if (v == null) { started = false; return; } d += (started ? ' L' : ' M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1); started = true; });
@@ -1021,11 +1065,19 @@ function renderTrendChart() {
   const N = dates.length;
   let idxs;
   if (N <= 8) idxs = dates.map((_, i) => i);
-  else { const step = Math.ceil((N - 1) / 6); idxs = []; for (let i = 0; i < N; i += step) idxs.push(i); if (idxs[idxs.length - 1] !== N - 1) idxs.push(N - 1); }
+  else idxs = thinTicks(N, 7);
   const note = dates.length < 2 ? 'Historikken bygges op fra i dag — kom tilbage om nogle dage for at se udviklingen i liggetid og prisnedsættelser.' : '';
-  lineChart(mount, xlab, series, { legend: true, yfmt, tfmt: fmt, empty: note, bands, xticks: idxs.map(i => [i, xlab[i]]) });
+  // The tracked area grew from the original S-tog corridor to hele Region
+  // Hovedstaden on this date — a one-day jump in coverage (+275 boliger,
+  // -3.8 % median kr/m² the same day) that looks like a market move in every
+  // metric here but isn't one. Mark it so it doesn't get misread as a price drop.
+  const REGION_EXPANSION_DATE = '2026-08-02';
+  const expIdx = dates.indexOf(REGION_EXPANSION_DATE);
+  const vmarks = expIdx >= 0 ? [{ index: expIdx, label: 'udvidet til hele Region H.', color: cssVar('--muted') }] : [];
+  lineChart(mount, xlab, series, { legend: true, yfmt, tfmt: fmt, empty: note, bands, xticks: idxs.map(i => [i, xlab[i]]), vmarks });
   if (metric === 'medM2' && dates.length >= 2) mount.append(el('p', { class: 'chart-note' }, 'Skygget felt = midterste 50 % (kvartiler). Linjen er medianen.'));
   if (note && dates.length === 1) mount.append(el('p', { class: 'chart-note' }, note));
+  if (expIdx >= 0) mount.append(el('p', { class: 'chart-note' }, 'Den stiplede grå linje markerer, hvor det sporede område blev udvidet fra S-togskorridoren til hele Region Hovedstaden — spring i tallene omkring den dato afspejler flere/andre kommuner, ikke et reelt markedsskift.'));
 }
 
 /* ===================== compare two kommuner ===================== */
@@ -1532,16 +1584,30 @@ function renderMapFacts(f) {
   const meds = [...byM.entries()].map(([s, a]) => ({ n: names[s] || s, v: median(a.filter(Boolean)) })).filter(x => x.v).sort((a, b) => b.v - a.v);
   const nearMed = median(f.filter(r => r.near).map(r => r.m2p).filter(Boolean));
   const farMed = median(f.filter(r => !r.near).map(r => r.m2p).filter(Boolean));
-  const mNearMed = median(f.filter(r => nearMetro(r)).map(r => r.m2p).filter(Boolean));
-  const mFarArr = f.filter(r => r.mst != null && !nearMetro(r)).map(r => r.m2p).filter(Boolean);
-  const mNearN = f.filter(r => nearMetro(r)).length;
+  // Metro only exists in a handful of central kommuner, so comparing "near
+  // metro" against the *whole* filtered set (unlike S-tog, which reaches
+  // ~20 kommuner and so already spans a comparable mix on both sides) would
+  // pit central Copenhagen against far, cheap kommuner that have nothing to
+  // do with metro access — inflating the premium with general urban-core
+  // desirability, not a metro-specific effect. Restrict "far" to the same
+  // kommuner that actually have metro-adjacent listings, so it's "near a
+  // stop" vs. "same city, just >500 m from one".
+  const mNearRows = f.filter(r => nearMetro(r));
+  const mNearMed = median(mNearRows.map(r => r.m2p).filter(Boolean));
+  const metroKommuner = new Set(mNearRows.map(r => r.muni));
+  const mFarArr = f.filter(r => r.mst != null && !nearMetro(r) && metroKommuner.has(r.muni)).map(r => r.m2p).filter(Boolean);
+  const mNearN = mNearRows.length;
   const mFarMed = median(mFarArr);
   const facts = [];
   if (meds.length) facts.push(['Dyreste kommune', `${meds[0].n} · ${m2(meds[0].v)}`]);
   if (meds.length > 1) facts.push(['Billigste kommune', `${meds[meds.length - 1].n} · ${m2(meds[meds.length - 1].v)}`]);
   if (nearMed && farMed) { const prem = Math.round((nearMed / farMed - 1) * 100); facts.push(['Nær S-tog vs. længere væk', `${m2(nearMed)} <small>mod ${m2(farMed)}</small>`]); facts.push(['S-togs­præmie', (prem >= 0 ? '+' : '') + prem + ' <small>% pr. m²</small>']); }
-  if (mNearMed && mFarMed && mNearN >= 8 && mFarArr.length >= 8) { const mp = Math.round((mNearMed / mFarMed - 1) * 100); facts.push(['Metropræmie', (mp >= 0 ? '+' : '') + mp + ' <small>% pr. m²</small>']); }
-  facts.forEach(([l, v]) => box.append(el('div', { class: 'mf' }, el('div', { class: 'mf-l' }, l), el('div', { class: 'mf-v', html: v }))));
+  if (mNearMed && mFarMed && mNearN >= 8 && mFarArr.length >= 8) {
+    const mp = Math.round((mNearMed / mFarMed - 1) * 100);
+    facts.push(['Metropræmie', (mp >= 0 ? '+' : '') + mp + ' <small>% pr. m²</small>',
+      'Sammenlignet med boliger i samme kommuner (metro findes kun i få, i forvejen dyre kommuner) — ellers ville præmien blande metronærhed sammen med prisforskellen mellem centrum og resten af regionen.']);
+  }
+  facts.forEach(([l, v, title]) => box.append(el('div', { class: 'mf', ...(title ? { title } : {}) }, el('div', { class: 'mf-l' }, l), el('div', { class: 'mf-v', html: v }))));
 }
 
 function renderMapLegend(colorBy, f, lineColors) {
@@ -1556,7 +1622,14 @@ function renderMapLegend(colorBy, f, lineColors) {
     const ramp = el('span', { class: 'ramp' }); let steps = seqRamp(); if (colorBy === 'd') steps = [...steps].reverse();
     steps.forEach(c => ramp.append(el('i', { style: `background:${c}` })));
     const label = colorBy === 'm2p' ? 'Pris pr. m²' : colorBy === 'p' ? 'Pris' : colorBy === 'kommune' ? 'Median pris/m² pr. kommune' : 'Liggetid';
-    box.append(el('span', { class: 'legend-item' }, label + ':'), el('span', { class: 'legend-item' }, colorBy === 'd' ? 'kort' : fmt(lo)), ramp, el('span', { class: 'legend-item' }, colorBy === 'd' ? 'lang' : fmt(hi)));
+    // mobile: compact "23k…104k" (the label already states the unit) instead
+    // of "23.254 kr/m²…104.363 kr/m²", which alone ran ~140px too wide to
+    // share a line with the ramp swatch on a 390px phone.
+    const scaleFmt = MOBILE_MQ.matches && colorBy !== 'd' ? kc : fmt;
+    // one flex item, not four — otherwise the wrapping legend row (mobile) can
+    // split the scale's low/ramp/high apart onto separate lines, since each
+    // used to be its own independently-wrappable child.
+    box.append(el('span', { class: 'legend-item' }, label + ': ' + (colorBy === 'd' ? 'kort' : scaleFmt(lo)), ramp, colorBy === 'd' ? 'lang' : scaleFmt(hi)));
   }
   if (S.showRail) {
     const rg = S.meta.railGeom;
