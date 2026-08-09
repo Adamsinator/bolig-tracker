@@ -1592,8 +1592,18 @@ function renderMapFacts(f) {
   const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
   const byM = new Map(); f.forEach(r => { (byM.get(r.muni) || byM.set(r.muni, []).get(r.muni)).push(r.m2p); });
   const meds = [...byM.entries()].map(([s, a]) => ({ n: names[s] || s, v: median(a.filter(Boolean)) })).filter(x => x.v).sort((a, b) => b.v - a.v);
-  const nearMed = median(f.filter(r => r.near).map(r => r.m2p).filter(Boolean));
-  const farMed = median(f.filter(r => !r.near).map(r => r.m2p).filter(Boolean));
+  // Same bias as the metro premium below, just milder: S-tog reaches ~21 of
+  // the 28 kommuner, but the other 7 (Dragør, Fredensborg, Gribskov,
+  // Halsnæs, Helsingør, Hørsholm, Tårnby) have no S-tog-adjacent listings at
+  // all, so comparing against the *whole* filtered set still mixes in
+  // "far from the nearest station" with "in a kommune the S-tog doesn't
+  // reach" — inflating the premium (measured ~48% raw vs. ~23% restricted).
+  // Restrict "far" to the same kommuner that actually have near-S-tog
+  // listings.
+  const nearRows = f.filter(r => r.near);
+  const nearMed = median(nearRows.map(r => r.m2p).filter(Boolean));
+  const strainKommuner = new Set(nearRows.map(r => r.muni));
+  const farMed = median(f.filter(r => !r.near && strainKommuner.has(r.muni)).map(r => r.m2p).filter(Boolean));
   // Metro only exists in a handful of central kommuner, so comparing "near
   // metro" against the *whole* filtered set (unlike S-tog, which reaches
   // ~20 kommuner and so already spans a comparable mix on both sides) would
@@ -1611,7 +1621,12 @@ function renderMapFacts(f) {
   const facts = [];
   if (meds.length) facts.push(['Dyreste kommune', `${meds[0].n} · ${m2(meds[0].v)}`]);
   if (meds.length > 1) facts.push(['Billigste kommune', `${meds[meds.length - 1].n} · ${m2(meds[meds.length - 1].v)}`]);
-  if (nearMed && farMed) { const prem = Math.round((nearMed / farMed - 1) * 100); facts.push(['Nær S-tog vs. længere væk', `${m2(nearMed)} <small>mod ${m2(farMed)}</small>`]); facts.push(['S-togs­præmie', (prem >= 0 ? '+' : '') + prem + ' <small>% pr. m²</small>']); }
+  if (nearMed && farMed) {
+    const prem = Math.round((nearMed / farMed - 1) * 100);
+    const strainTitle = 'Sammenlignet med boliger i samme kommuner (nogle kommuner har slet ikke S-tog i nærheden) — ellers ville præmien blande S-togsnærhed sammen med prisforskellen til de kommuner, S-toget ikke når ud til.';
+    facts.push(['Nær S-tog vs. længere væk', `${m2(nearMed)} <small>mod ${m2(farMed)}</small>`, strainTitle]);
+    facts.push(['S-togs­præmie', (prem >= 0 ? '+' : '') + prem + ' <small>% pr. m²</small>', strainTitle]);
+  }
   if (mNearMed && mFarMed && mNearN >= 8 && mFarArr.length >= 8) {
     const mp = Math.round((mNearMed / mFarMed - 1) * 100);
     facts.push(['Metropræmie', (mp >= 0 ? '+' : '') + mp + ' <small>% pr. m²</small>',
