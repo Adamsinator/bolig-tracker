@@ -448,13 +448,19 @@ function setupLookup() {
     input.value = it.text;
     picked = { name: it.text, lat: it.lat, lon: it.lon };
     const myGen = ++pickGen;   // guards against a slower, earlier pick overwriting this one
-    // a unit-level address (has etage and/or dør) means this is a condo —
-    // switch the toggle and prefill the floor so the user doesn't have to
-    // re-enter what they just picked from the suggestion list.
+    // A unit-level address (has etage and/or dør) is a flat; a plain street
+    // address is a house or rækkehus, both "villa" here. Detect both ways —
+    // this used to only ever switch *to* condo, so after looking up a flat,
+    // the next lookup of a house stayed on Ejerlejlighed and silently valued
+    // it as one (boligtype is a model feature, and it also decides whether
+    // grund/kælder or etage are used at all).
     if (it.etage != null || it.doer != null) {
       applyType('condo');
       const fl = parseEtage(it.etage);
       if (fl != null) $('#lkFloor').value = fl;
+    } else {
+      applyType('villa');
+      $('#lkFloor').value = '';   // don't carry a previous flat's floor over
     }
     close(); updateGo();
 

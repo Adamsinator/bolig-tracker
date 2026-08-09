@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=17">
 <link rel="manifest" href="manifest.webmanifest?v=18">
 <meta name="theme-color" content="#43494d">
-<link rel="stylesheet" href="styles.css?v=63">
+<link rel="stylesheet" href="styles.css?v=64">
 <style>
   .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
   .mdl-note strong { color:var(--ink); }
@@ -31,6 +31,8 @@
   .lk-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-top:14px; }
   .lk-field label { font-size:11.5px; color:var(--ink-2); font-weight:700; text-transform:uppercase; letter-spacing:.02em; display:block; margin-bottom:5px; }
   .lk-field em { font-style:normal; text-transform:none; font-weight:500; letter-spacing:normal; color:var(--muted); font-size:10.5px; display:block; margin-top:4px; }
+  .lk-seg-label { display:block; margin:14px 0 5px; font-size:11.5px; color:var(--ink-2); font-weight:700; text-transform:uppercase; letter-spacing:.02em; }
+  .lk-seg-label em { font-style:normal; text-transform:none; font-weight:500; letter-spacing:normal; color:var(--muted); font-size:10.5px; display:block; margin-top:2px; }
   .lk-field input, .lk-field select { width:100%; font:inherit; font-size:14px; color:var(--ink); background:var(--surface);
     border:1px solid var(--border); border-radius:0; padding:8px 10px; }
   .lk-hide { display:none; }
@@ -86,7 +88,8 @@
         <label>Adresse</label>
         <div class="geo-input"><input type="text" id="lkAddr" autocomplete="off" placeholder="Adresse…"><div class="geo-sug" id="lkSug"></div></div>
       </div>
-      <div class="seg" id="lkTypeSeg" role="tablist" aria-label="Boligtype" style="margin-top:14px;">
+      <label class="lk-seg-label">Boligtype <em>sættes automatisk ud fra adressen — ret den, hvis den er forkert</em></label>
+      <div class="seg" id="lkTypeSeg" role="tablist" aria-label="Boligtype">
         <button type="button" data-type="villa" aria-selected="true">🏡 Villa/rækkehus</button>
         <button type="button" data-type="condo" aria-selected="false">🏢 Ejerlejlighed</button>
       </div>
@@ -363,7 +366,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="model.js?v=9"></script>
-<script src="modelpage.js?v=10"></script>
+<script src="modelpage.js?v=11"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
