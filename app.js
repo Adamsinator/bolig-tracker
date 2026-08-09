@@ -632,7 +632,11 @@ function vbars(mount, rows, opt = {}) {
     if (opt.topLabels !== false) { const vt = svel('text', { x: x + bw / 2, y: y - 5, 'text-anchor': 'middle', class: 'bar-val', opacity: dim ? 0.4 : 1 }); vt.textContent = yfmt(r.value); g.append(vt); }
     g.addEventListener('mousemove', e => showTip(opt.tip ? opt.tip(r) : `<div class="tt-title">${r.label}</div><div class="tt-row"><span>${opt.vlabel || 'Værdi'}</span><b>${fmt(r.value)}</b></div>${r.n != null ? `<div class="tt-row"><span>Antal boliger</span><b>${r.n}</b></div>` : ''}`, e.clientX, e.clientY));
     g.addEventListener('mouseleave', hideTip);
-    if (opt.onBar) { g.style.cursor = 'pointer'; g.addEventListener('click', () => opt.onBar(r)); }
+    // clicking a bar opens the full detail panel below (more info than the
+    // tooltip anyway), so the transient hover tooltip has no reason to
+    // hang around afterward — dismiss it immediately rather than leaving it
+    // to the next scroll/touch
+    if (opt.onBar) { g.style.cursor = 'pointer'; g.addEventListener('click', () => { hideTip(); opt.onBar(r); }); }
     svg.append(g);
     const lx = x + bw / 2, ly = H - padB + 15;
     const lt = svel('text', { x: lx, y: ly, class: 'axis-txt' }); lt.textContent = r.label;
