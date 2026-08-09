@@ -72,10 +72,19 @@
     // read as "no land at all" — same convention as poi/geo/noise/comps above.
     const medLot = median(rows.filter(r => r.t === 'villa' && r.lot > 0).map(r => r.lot)) || 800;
     const lotOf = r => (r.lot > 0 ? r.lot : medLot);
+    // Same trap for etage: a flat with no floor in the data was read as
+    // stueetage, the cheapest floor there is, so those 107 listings came out
+    // systematically under-predicted (+5 % median residual — i.e. flagged as
+    // dearer than they are). Impute the typical floor instead; villas keep 0,
+    // which the villa dummy absorbs. Height is worth ~2,5 % per floor and runs
+    // close enough to linear that one term covers it — measured within single
+    // buildings, there is no extra stueetage cliff or top-floor bump to model.
+    const medFln = median(rows.filter(r => r.t === 'condo' && r.fln != null).map(r => r.fln)) || 1;
+    const flnOf = r => (r.t !== 'condo' ? 0 : (r.fln != null ? r.fln : medFln));
     const feat = r => {
       const la = Math.log(r.a);
       const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
-        (((r.y || 1970) - 1970) / 50), ((r.fln != null ? r.fln : 0) / 5),
+        (((r.y || 1970) - 1970) / 50), (flnOf(r) / 5),
         (r.bsm > 0 ? 1 : 0), (r.t === 'villa' ? Math.log(lotOf(r) + 1) / 10 : 0), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
         (r.near ? 1 : 0), (r.t === 'villa' ? 1 : 0)];
       if (hasMetro) f.push(Math.log((r.mst || 0) + 1) / 10, nearMetro(r) ? 1 : 0);

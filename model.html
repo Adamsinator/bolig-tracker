@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=17">
 <link rel="manifest" href="manifest.webmanifest?v=18">
 <meta name="theme-color" content="#43494d">
-<link rel="stylesheet" href="styles.css?v=64">
+<link rel="stylesheet" href="styles.css?v=65">
 <style>
   .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
   .mdl-note strong { color:var(--ink); }
@@ -95,7 +95,7 @@
       </div>
       <div class="lk-grid">
         <div class="lk-field"><label>Boligareal (m²)</label><input type="number" id="lkArea" min="10" max="1000" placeholder="fx 120"><em>udfyldes fra BBR — tjek at det stemmer, BBR kan dække et enkelt bygningsnummer frem for hele boligen</em></div>
-        <div class="lk-field"><label>Værelser</label><input type="number" id="lkRooms" min="1" max="15" placeholder="fx 4"></div>
+        <div class="lk-field"><label>Værelser</label><input type="number" id="lkRooms" min="1" max="15" placeholder="fx 4"><em>rykker næsten intet, når boligarealet er udfyldt</em></div>
         <div class="lk-field"><label>Byggeår</label><input type="number" id="lkYear" min="1700" max="2026" placeholder="fx 1975"></div>
         <div class="lk-field"><label>Energimærke</label><select id="lkEnergy"><option value="">Ukendt</option><option>a</option><option>b</option><option>c</option><option>d</option><option>e</option><option>f</option><option>g</option></select></div>
         <div class="lk-field" id="lkFloorField"><label>Etage</label><input type="number" id="lkFloor" min="0" max="30" placeholder="fx 2"></div>
@@ -196,9 +196,9 @@
         <tr><td>Værelser</td><td class="expr"><var>r</var></td><td class="cond">altid, 0 hvis ukendt</td></tr>
         <tr><td>Værelsesstørrelse</td><td class="expr"><var>a</var> / (40·<var>r</var>)</td><td class="cond">altid, 0 hvis <var>a</var> eller <var>r</var> mangler</td></tr>
         <tr><td>Byggeår</td><td class="expr">(<var>år</var> − 1970) / 50</td><td class="cond">altid, 1970 (dvs. 0) hvis ukendt</td></tr>
-        <tr><td>Etage</td><td class="expr"><var>etage</var> / 5</td><td class="cond">altid, 0 hvis ukendt</td></tr>
+        <tr><td>Etage</td><td class="expr"><var>etage</var> / 5</td><td class="cond">kun ejerlejlighed (villa = 0); medianetagen hvis ukendt</td></tr>
         <tr><td>Kælder</td><td class="expr">1[kælder &gt; 0]</td><td class="cond">altid</td></tr>
-        <tr><td>Grund</td><td class="expr">ln(<var>grund</var> + 1) / 10</td><td class="cond">altid, 0 hvis ukendt</td></tr>
+        <tr><td>Grund</td><td class="expr">ln(<var>grund</var> + 1) / 10</td><td class="cond">kun villa (en lejligheds »grund« er hele matriklen); mediangrunden hvis ukendt</td></tr>
         <tr><td>Energimærke</td><td class="expr">rang(<var>e</var>) / 7</td><td class="cond">altid — A=7…G=1, D-niveau (4) hvis ukendt</td></tr>
         <tr><td>Afstand til S-tog</td><td class="expr">ln(<var>d</var><sub>S-tog</sub> + 1) / 10</td><td class="cond">altid</td></tr>
         <tr><td>Tæt på S-tog</td><td class="expr">1[nær S-togsstation]</td><td class="cond">altid</td></tr>
@@ -365,7 +365,7 @@
 </div>
 
 <div id="tooltip" class="tooltip" hidden></div>
-<script src="model.js?v=9"></script>
+<script src="model.js?v=10"></script>
 <script src="modelpage.js?v=11"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
