@@ -440,6 +440,14 @@ function showTip(html, x, y) {
   TT.style.top = Math.max(8, y - h - 12) + 'px';
 }
 const hideTip = () => { TT.hidden = true; };
+// Tooltips only ever *show* on mousemove and *hide* on mouseleave — fine for
+// a real cursor, but touch has no "leave": tapping a bar/point fires a
+// synthetic mousemove (showing it) with no mouseleave to follow, so on a
+// phone the tooltip could get stuck on screen through a tap-to-select and
+// then a scroll. Clear it on any scroll (capture, so it also catches scrolls
+// inside nested scrollable panels) and at the start of the next touch.
+addEventListener('scroll', hideTip, { passive: true, capture: true });
+document.addEventListener('touchstart', hideTip, { passive: true });
 
 /* ===================== vertical column chart ===================== */
 // compact kroner: 86.600 -> "87k"
