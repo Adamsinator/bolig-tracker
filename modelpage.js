@@ -437,7 +437,6 @@ function setupLookup() {
     lkType = type;
     [...seg.children].forEach(c => { const on = c.dataset.type === type; c.classList.toggle('active', on); c.setAttribute('aria-selected', on); });
     $('#lkFloorField').classList.toggle('lk-hide', lkType !== 'condo');
-    $('#lkElevField').classList.toggle('lk-hide', lkType !== 'condo');
     $('#lkBalcField').classList.toggle('lk-hide', lkType !== 'condo');
     $('#lkLotField').classList.toggle('lk-hide', lkType !== 'villa');
     $('#lkBsmField').classList.toggle('lk-hide', lkType !== 'villa');
@@ -519,9 +518,8 @@ function setupLookup() {
       fln: lkType === 'condo' ? (+$('#lkFloor').value || 0) : undefined,
       bsm: lkType === 'villa' ? (+$('#lkBsm').value || 0) : 0,
       lot: lkType === 'villa' ? (+$('#lkLot').value || 0) : 0,
-      // both are model features; leaving them out would silently mean "no lift,
-      // no altan" for every flat looked up here, which is the minority case
-      elev: lkType === 'condo' && $('#lkElev').value === '1',
+      // altan is a model feature; omitting it would silently mean "no altan"
+      // for every flat looked up here, which is the minority case
       balc: lkType === 'condo' && $('#lkBalc').value === '1',
     }, loc);
     const pm2 = fv.predict(spec);
