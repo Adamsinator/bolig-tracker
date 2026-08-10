@@ -11,7 +11,7 @@ const S = {
   search: '', colorBy: 'm2p', sort: 'd', shown: 60, showRail: true, showMetro: true, showPois: false, trackerMap: null, onlyCut: false,
   favs: {}, onlyFav: false, cmpA: null, cmpB: null, onlyNew: false, hideHf: false,
   A: null, B: null, radA: 3, radB: 3,   // home/work points {name,lat,lon}
-  dstArea: '01', indexMode: 'krm2', bvc: null,
+  dstArea: '084', indexMode: 'krm2', bvc: null,   // default selection is all kommuner → the region
 };
 // Boliger now sits above the map/charts, so its initial page must stay short
 // or it pushes everything else off-screen — especially on a phone. Collapsed
@@ -172,10 +172,12 @@ function initUI() {
   $('#loadMore').addEventListener('click', () => { S.shown += 30; renderCards(filtered()); });
   $('#resetFilters').addEventListener('click', resetFilters);
 
-  // DST area select — only the corridor landsdele we can anchor to real kr/m²
+  // DST area select — the three landsdele plus the region as a whole; all four
+  // can be anchored to our own median kr/m² for the kommuner they cover.
   if (S.index) {
     const sel = $('#dstArea');
-    S.index.areas.filter(a => DST_LANDSDEL_MUNIS[a.id]).forEach(a => sel.append(el('option', { value: a.id }, a.name)));
+    S.index.areas.filter(a => DST_LANDSDEL_MUNIS[a.id] || a.id === DST_REGION)
+      .forEach(a => sel.append(el('option', { value: a.id }, a.name)));
     sel.value = S.dstArea;
     sel.addEventListener('change', e => { S.dstArea = e.target.value; renderIndexChart(); });
   }
@@ -1056,29 +1058,44 @@ function lineChart(mount, xLabels, series, opt = {}) {
   }
 }
 
-// DST landsdele → the corridor municipalities they contain (for anchoring the
-// index to today's real kr/m²). 084/000 aren't shown (can't anchor to our data).
+// DST landsdele → the kommuner they contain, for anchoring the index to today's
+// real kr/m². This list used to hold only 14 of the 28 kommuner — a leftover
+// from when the app tracked the S-tog corridor. Anything missing (Gribskov,
+// Helsingør, Tårnby, the whole western suburb belt…) matched no landsdel, so
+// selecting it left the chart on whichever område happened to be set last:
+// pick Gentofte, then Gribskov, and Nordsjælland's index was still labelled and
+// drawn as Københavns omegn. All 28 are now mapped, per DST's own landsdel
+// definitions (Bornholm is its own landsdel and isn't tracked).
 const DST_LANDSDEL_MUNIS = {
-  '01': ['koebenhavn', 'frederiksberg'],
-  '02': ['gentofte', 'lyngby-taarbaek', 'gladsaxe', 'herlev', 'ballerup'],
-  '03': ['rudersdal', 'furesoe', 'alleroed', 'hilleroed', 'hoersholm', 'egedal', 'fredensborg'],
+  '01': ['koebenhavn', 'frederiksberg', 'dragoer', 'taarnby'],
+  '02': ['albertslund', 'ballerup', 'broendby', 'gentofte', 'gladsaxe', 'glostrup', 'herlev',
+    'hvidovre', 'hoeje-taastrup', 'ishoej', 'lyngby-taarbaek', 'roedovre', 'vallensbaek'],
+  '03': ['alleroed', 'egedal', 'fredensborg', 'frederikssund', 'furesoe', 'gribskov', 'halsnaes',
+    'helsingoer', 'hilleroed', 'hoersholm', 'rudersdal'],
 };
+// Region Hovedstaden's own DST series — the right one whenever the selection
+// spans more than one landsdel, which includes the default "alle kommuner".
+// That case used to fall through to whatever the select happened to hold (the
+// first option, Byen København), so the region-wide chart drew Copenhagen's
+// index anchored to the whole region's median.
+const DST_REGION = '084';
+const dstMunis = areaId => areaId === DST_REGION
+  ? Object.values(DST_LANDSDEL_MUNIS).flat()
+  : (DST_LANDSDEL_MUNIS[areaId] || []);
 function currentKrM2(areaId, type) {
-  const set = new Set(DST_LANDSDEL_MUNIS[areaId] || []);
+  const set = new Set(dstMunis(areaId));
   return median(S.all.filter(r => r.t === type && set.has(r.muni)).map(r => r.m2p).filter(Boolean));
 }
-// When the kommune selection sits within a single DST landsdel, point the
-// price-development chart's "Område" at it (Hillerød → Nordsjælland, etc.).
+// Point the price-development chart's "Område" at the selection: one landsdel
+// when it sits inside one (Hillerød → Nordsjælland), otherwise the region.
 function autoFollowDstArea() {
   if (!S.index) return;
   const lds = new Set();
   S.munis.forEach(slug => {
     for (const [ld, arr] of Object.entries(DST_LANDSDEL_MUNIS)) if (arr.includes(slug)) lds.add(ld);
   });
-  if (lds.size === 1) {
-    const ld = [...lds][0];
-    if (S.dstArea !== ld) { S.dstArea = ld; const sel = $('#dstArea'); if (sel) sel.value = ld; }
-  }
+  const ld = lds.size === 1 ? [...lds][0] : lds.size > 1 ? DST_REGION : null;
+  if (ld && S.dstArea !== ld) { S.dstArea = ld; const sel = $('#dstArea'); if (sel) sel.value = ld; }
 }
 // When exactly two kommuner are selected, default the compare card to those two.
 function autoFollowCompare() {
@@ -1109,7 +1126,7 @@ function renderIndexChart() {
   lineChart(mount, q, series, { xticks, legend: true, yfmt: m2short, tfmt: m2 });
   const areaName = (S.index.areas.find(a => a.id === area) || {}).name || '';
   mount.append(el('p', { class: 'chart-note' },
-    `Estimeret kr/m² for ${areaName}: Danmarks Statistiks kvartalsvise prisindeks (EJ56) skaleret, så seneste kvartal svarer til det aktuelle medianniveau. Viser prisernes bevægelse siden 1992, ikke faktiske historiske udbudspriser.`));
+    `Estimeret kr/m² for ${areaName}: Danmarks Statistiks kvartalsvise prisindeks (EJ56) skaleret, så seneste kvartal svarer til det aktuelle medianniveau i området. Området følger dit kommunevalg, men de øvrige filtre påvirker ikke kurven — indekset findes kun på landsdelsniveau. Viser prisernes bevægelse siden 1992, ikke faktiske historiske udbudspriser.`));
 }
 const m2short = v => v == null ? '–' : Math.round(v / 1000) + 'k';
 
@@ -1142,8 +1159,13 @@ function renderRealIndexChart(mount) {
 function renderTrendChart() {
   const mount = $('#chartTrend'); const hist = (S.history && S.history.series) || [];
   const metric = $('#trendMetric').value;
+  // The daily snapshots are only stored per single kommune and for the region as
+  // a whole — there is no history for an arbitrary subset. Say so when the
+  // selection is a subset, instead of quietly labelling it "hele regionen".
   const scope = S.munis.size === 1 ? [...S.munis][0] : 'all';
-  const scopeName = scope === 'all' ? 'hele regionen' : (S.meta.municipalities.find(m => m.slug === scope) || {}).name;
+  const subset = S.munis.size > 1 && S.munis.size < S.meta.municipalities.length;
+  const scopeName = scope === 'all' ? (subset ? 'hele regionen — historikken findes kun samlet eller for én kommune ad gangen' : 'hele regionen')
+    : (S.meta.municipalities.find(m => m.slug === scope) || {}).name;
   const dates = [...new Set(hist.filter(r => r.scope === scope).map(r => r.date))].sort();
   $('#trendSrc').textContent = '· ' + scopeName + (dates.length < 2 ? ' · bygges op fra ' + (dates[0] || '') : ' · vores daglige målinger');
   const rowOf = (t, d) => hist.find(r => r.scope === scope && r.type === t && r.date === d);
