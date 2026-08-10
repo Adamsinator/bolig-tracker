@@ -81,9 +81,25 @@
     // buildings, there is no extra stueetage cliff or top-floor bump to model.
     const medFln = median(rows.filter(r => r.t === 'condo' && r.fln != null).map(r => r.fln)) || 1;
     const flnOf = r => (r.t !== 'condo' ? 0 : (r.fln != null ? r.fln : medFln));
+    // And once more for værelser. An unknown room count used to be sent as 0,
+    // which also zeroed the room-size term (a/r) — landing on a point no real
+    // home occupies and which happens to score highest of all, so leaving the
+    // field blank on the lookup form beat filling it in truthfully. Impute from
+    // the area at the typical m² per room instead, so room size sits at its
+    // normal value and the count scales with the home.
+    const medRoomSize = median(rows.filter(r => r.a > 0 && r.r > 0).map(r => r.a / r.r)) || 30;
+    const roomsOf = r => (r.r > 0 ? r.r : (r.a > 0 ? Math.max(1, Math.round(r.a / medRoomSize)) : 0));
+    // Tested and rejected: a top-floor and a stueetage dummy, using the building's
+    // real height from DAR's unit register. Measured against a model with the
+    // floor term removed they looked strong (top +5 %, stue -4 % in blocks of 4+
+    // floors), but that is the *total* height effect, which the linear etage term
+    // already carries. Put back in alongside it, both coefficients collapse to
+    // noise with the wrong sign (-0,4 % and +0,6 %), R² drops, and the residual by
+    // position in the building has no ordering left. Height is worth ~1,3 % per
+    // floor and a penthouse is simply the highest floor — there is no separate bump.
     const feat = r => {
       const la = Math.log(r.a);
-      const f = [1, la, la * la, (r.r || 0), (r.a && r.r ? r.a / r.r / 40 : 0),
+      const f = [1, la, la * la, roomsOf(r), (r.a && roomsOf(r) ? r.a / roomsOf(r) / 40 : 0),
         (((r.y || 1970) - 1970) / 50), (flnOf(r) / 5),
         (r.bsm > 0 ? 1 : 0), (r.t === 'villa' ? Math.log(lotOf(r) + 1) / 10 : 0), (erank(r.e) / 7), (Math.log((r.sst || 0) + 1) / 10),
         // Altan/terrasse was already in the data and offered as a filter, but the
