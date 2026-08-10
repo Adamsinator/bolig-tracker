@@ -17,7 +17,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=17">
 <link rel="manifest" href="manifest.webmanifest?v=18">
 <meta name="theme-color" content="#43494d">
-<link rel="stylesheet" href="styles.css?v=68">
+<link rel="stylesheet" href="styles.css?v=69">
 <style>
   .mdl-note { font-size:13.5px; color:var(--ink-2); line-height:1.65; }
   .mdl-note strong { color:var(--ink); }
@@ -137,7 +137,8 @@
 
     <div class="card wide">
       <div class="card-head"><h2>Boliger modellen holder udenfor <span class="src" id="oddCount"></span></h2></div>
-      <p class="mdl-note">Nogle boliger er ikke almindelige familieboliger — husbåde uden grund, boliger med hjemfaldspligt, andelslignende handler. De trækker modellen skæv, så de udelades af beregningen, og de får <strong>ingen vurdering</strong> på forsiden: en “under vurdering”-mærkat ville her ligne et røverkøb frem for en anden slags bolig.</p>
+      <p class="mdl-note">Nogle boliger er ikke almindelige familieboliger — husbåde uden grund, boliger med hjemfaldspligt, andelslignende handler, nedrivningsklare huse. De trækker modellen skæv, så de udelades af beregningen, og de får <strong>ingen vurdering</strong> på forsiden: en “under vurdering”-mærkat ville her ligne et røverkøb frem for en anden slags bolig.</p>
+      <p class="mdl-note">“Billig kommune” er <em>ikke</em> grunden til at havne her. Modellen har sit eget niveau for hver af de 28 kommuner, så en helt normal bolig i Halsnæs eller Gribskov til 20.000 kr/m² passer lige så godt som en i København til 80.000. Kolonnen <strong>Ift. kommunen</strong> viser hver bolig målt mod medianen for netop dens kommune og boligtype: de udeladte ligger typisk på 0,3–0,5× eller 1,5–2× det normale <em>lokalt</em>.</p>
       <div class="mdl-wrap"><table class="mdl-table" id="oddTable"></table></div>
     </div>
 
@@ -218,7 +219,7 @@
       </div>
       <p class="mdl-note">
         <strong>Lokalt benchmark</strong> er ikke en rå gennemsnitspris i området: hvert salg er tidsjusteret til i dag med
-        korridorens eget kvartalsindeks, matchet på boligtype, størrelse og byggeår, og de nærmeste salg vægtes efter
+        regionens eget kvartalsindeks, matchet på boligtype, størrelse og byggeår, og de nærmeste salg vægtes efter
         afstand frem for en hård radius — så et tyndt datagrundlag falder gradvist tilbage på kommune-/typemedianen i
         stedet for at springe til en 2 km-median. Konkret er det en vægtet median af de <var>K</var> nærmeste tidsjusterede
         salg, med vægt <var>w</var> aftagende i afstand <var>d</var> (halveret ved 500 m):
@@ -368,7 +369,7 @@
 
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="model.js?v=13"></script>
-<script src="modelpage.js?v=13"></script>
+<script src="modelpage.js?v=14"></script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

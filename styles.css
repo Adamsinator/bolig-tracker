@@ -484,7 +484,8 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .dist-title { font-size:11px; color:var(--muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.02em; }
 .distbar { display:flex; height:22px; border-radius:0; overflow:hidden; border:1px solid var(--border-2); }
 .distseg { display:flex; align-items:center; justify-content:center; color:#fff; font-family:var(--font-data); font-size:10.5px; font-weight:700;
-  min-width:2px; text-shadow:0 1px 1px rgba(0,0,0,.35); }
+  min-width:2px; text-shadow:0 1px 1px rgba(0,0,0,.35); cursor:default; }
+.distseg:hover { filter:brightness(1.12); }
 @media (max-width:640px){ .dist-wrap { grid-template-columns:1fr; } }
 
 /* ---- tooltip ---- */

@@ -1,7 +1,7 @@
 {
   "name": "Bolig Tracker",
   "short_name": "Bolig Tracker",
-  "description": "Boligmarkedet fra København til Hillerød — udbud, salgspriser, kort og realkreditrenter.",
+  "description": "Boligmarkedet i Region Hovedstaden — udbud, salgspriser, kort og realkreditrenter.",
   "lang": "da",
   "start_url": "./",
   "scope": "./",

@@ -117,6 +117,14 @@ function scatter(rows, fv) {
   lx.textContent = 'Modellens vurdering (kr/m²)';
   svg.append(lx);
   mount.append(svg);
+  // The dots are colour-coded by boligtype and the dashed 45° line is the
+  // "model = udbudspris" reference — neither said so anywhere until now.
+  const nC = pts.filter(r => r.t !== 'villa').length;
+  const lg = el('div', { class: 'chart-legend' },
+    el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${cssVar('--condo')}` }), `Ejerlejlighed (${nf(nC)})`),
+    el('span', { class: 'legend-item' }, el('span', { class: 'swatch', style: `background:${cssVar('--villa')}` }), `Villa/hus (${nf(pts.length - nC)})`),
+    el('span', { class: 'legend-item' }, el('span', { class: 'legend-line dashed', style: `border-top-color:${cssVar('--muted')}` }), 'Model = udbudspris'));
+  mount.append(lg);
 }
 
 /* distribution of (asking / model − 1) */
@@ -190,12 +198,31 @@ function odd(fv) {
   const list = DATA.listings.filter(r => fv.odd.has(r.id))
     .sort((a, b) => (a.m2p || 0) - (b.m2p || 0));
   $('#oddCount').textContent = '· ' + list.length + ' boliger';
+  // "Meget lav kr/m²" used to be an absolute test — under 25.000 kr/m². That
+  // reads fine in København but is nonsense in the cheap end of the region:
+  // Halsnæs villaer have a median of 19.750 and Gribskov 24.271 kr/m², so
+  // perfectly ordinary houses there were being labelled "fx husbåd eller
+  // andelslignende". Compare each home with the median for its own kommune and
+  // type instead — the same yardstick the model itself uses, since it carries a
+  // dummy per kommune. Measured on the current data, 32 of the 33 homes the old
+  // rule called houseboats sit below 0,7× their own kommune's median (most at
+  // 0,3–0,5×), so the exclusions were right; only the explanation was wrong.
+  const med = arr => { if (!arr.length) return null; const a = [...arr].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const byMT = {};
+  DATA.listings.forEach(r => { if (r.m2p > 0) (byMT[r.muni + '|' + r.t] = byMT[r.muni + '|' + r.t] || []).push(r.m2p); });
+  const localMed = {}; for (const k in byMT) localMed[k] = med(byMT[k]);
+  const names = DATA.meta ? Object.fromEntries((DATA.meta.municipalities || []).map(m => [m.slug, m.name])) : {};
   t.append(el('tr', {}, el('th', {}, 'Adresse'), el('th', {}, 'Type'),
-    el('th', { class: 'num' }, 'kr/m²'), el('th', { class: 'num' }, 'Afvigelse'), el('th', {}, 'Bemærkning')));
+    el('th', { class: 'num' }, 'kr/m²'), el('th', { class: 'num' }, 'Ift. kommunen'),
+    el('th', { class: 'num' }, 'Afvigelse'), el('th', {}, 'Bemærkning')));
   list.slice(0, 60).forEach(r => {
     const d = fv.resid.get(r.id);
+    const lm = localMed[r.muni + '|' + r.t];
+    const rel = (lm && r.m2p) ? r.m2p / lm : null;
+    const kn = names[r.muni] || r.muni;
     const why = r.hf ? 'Hjemfald / tilbagekøb'
-      : (r.m2p && r.m2p < 25000) ? 'Meget lav kr/m² — fx husbåd eller andelslignende'
+      : (rel != null && rel < 0.6) ? `Under det halve af normalen i ${kn}`
+      : (rel != null && rel > 1.6) ? `Over halvanden gang normalen i ${kn}`
       : (d != null && d > 0) ? 'Udbudt langt over sammenlignelige boliger'
       : 'Passer ikke til almindelige boliger i området';
     const a = el('a', { href: r.url || '#', target: '_blank', rel: 'noopener' }, r.adr || '–');
@@ -203,6 +230,7 @@ function odd(fv) {
       el('td', {}, a),
       el('td', {}, r.sub || (r.t === 'villa' ? 'Villa' : 'Ejerlejl.')),
       el('td', { class: 'num' }, r.m2p ? nf(r.m2p) : '–'),
+      el('td', { class: 'num' }, rel != null ? rel.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '×' : '–'),
       el('td', { class: 'num' }, d != null ? (d > 0 ? '+' : '') + d + ' %' : '–'),
       el('td', {}, why)));
   });

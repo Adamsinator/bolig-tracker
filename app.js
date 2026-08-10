@@ -562,7 +562,7 @@ function renderSoldTrend(f) {
   const names = Object.fromEntries(S.meta.municipalities.map(m => [m.slug, m.name]));
   const quarters = S.sold.quarters || [];
   const sel = [...S.munis];
-  const scopeName = S.munis.size >= S.meta.municipalities.length ? 'hele korridoren'
+  const scopeName = S.munis.size >= S.meta.municipalities.length ? 'hele regionen'
     : S.munis.size === 1 ? (names[sel[0]] || sel[0]) : `${S.munis.size} kommuner`;
   // For the whole corridor use the pipeline's pooled series (volume-weighted, so
   // condo kr/m² correctly sits above villa); for one kommune use its exact series;
@@ -577,8 +577,35 @@ function renderSoldTrend(f) {
       return vals.length ? Math.round(median(vals)) : null;
     });
   };
+  // The dashed reference has to be built the same way as the line it is drawn
+  // against, or the two aren't comparable. For a subset that's already true —
+  // both sides are a median across the same kommuner's medians. For the whole
+  // corridor the realised curve pools *sales* while the naive asking median
+  // pools *listings*, and those are different populations: what's for sale is
+  // the standing stock, and expensive kommuner sit in it much longer than they
+  // sell, so they're over-represented. Gentofte + Rudersdal + Hørsholm are
+  // 22,7 % of villa listings against 15,2 % of villa sales. Reweighting each
+  // listing by its kommune's sales-per-listing ratio moves the villa reference
+  // from +15,1 % over the newest realised quarter to +6,6 %, and the condo one
+  // from +16,7 % to +10,3 % — the rest was kommune mix, not an asking premium.
+  const wmedian = pairs => {
+    const a = pairs.filter(p => p[1] > 0).sort((x, y) => x[0] - y[0]);
+    if (!a.length) return null;
+    const half = a.reduce((s, p) => s + p[1], 0) / 2;
+    let c = 0; for (const [v, w] of a) { c += w; if (c >= half) return v; }
+    return a[a.length - 1][0];
+  };
   const askMed = t => {
-    if (whole) { const m = median(S.all.filter(r => r.t === t).map(r => r.m2p).filter(Boolean)); return m || null; }
+    if (whole) {
+      const rows = S.all.filter(r => r.t === t && r.m2p);
+      const nList = {}, nSold = {};
+      rows.forEach(r => { nList[r.muni] = (nList[r.muni] || 0) + 1; });
+      for (const slug in S.sold.byMuni) { const b = S.sold.byMuni[slug][t]; if (b && b.n) nSold[slug] = b.n; }
+      const m = Object.keys(nSold).length
+        ? wmedian(rows.map(r => [r.m2p, (nSold[r.muni] || 0) / nList[r.muni]]))
+        : median(rows.map(r => r.m2p));
+      return m || null;
+    }
     const per = [];
     for (const slug of sel) { const m = median(S.all.filter(r => r.t === t && r.muni === slug).map(r => r.m2p).filter(Boolean)); if (m) per.push(m); }
     return per.length ? median(per) : null;
@@ -597,7 +624,9 @@ function renderSoldTrend(f) {
   // rising market it understates where prices are today. It's also the
   // *current*, still-filling quarter, so its median can still move as more
   // sales register.
-  if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = nuværende udbudsniveau. Seneste kvartal er endnu ikke afsluttet, og tinglysning sker typisk uger–måneder efter selve handlen — så gabet til "udbud nu" er normalt større end den generelle udbud/realiseret-forskel. Kilde: Boliga/tinglysning.`;
+  if (note) note.textContent = `Median realiseret kr/m² pr. kvartal — ${scopeName}. Stiplet linje = udbudsniveauet nu`
+    + (whole ? ', vægtet til samme kommunesammensætning som salgene: dyre kommuner fylder mere i udbuddet, fordi de ligger længere til salg' : ', opgjort på samme kommuner som kurven')
+    + '. Seneste kvartal er ikke afsluttet, og tinglysning halter uger–måneder efter handlen — derfor er gabet til udbud nu lidt større end den generelle udbud/realiseret-forskel. Kilde: Boliga/tinglysning.';
 }
 
 // Realised kr/m² by BBR build-decade (corridor-wide), condo vs. villa — shows
@@ -616,7 +645,16 @@ function renderSoldDecade() {
   // thin the decade labels so they don't overlap (show ~8 evenly, always incl. last)
   const dIdx = thinTicks(decades.length, 8);
   lineChart(box, xlab, series, { legend: true, yfmt: kc, tfmt: m2, xticks: dIdx.map(i => [i, xlab[i]]) });
-  if (note) note.textContent = 'Median realiseret kr/m² efter opførelsesårti (BBR), hele korridoren, seneste 12 mdr. Kilde: Boliga/tinglysning + BBR.';
+  // Why the condo line reaches further left than the villa line: a decade is
+  // only plotted when it has at least 25 realised sales in the last 12 months,
+  // so this is coverage, not a market difference. Copenhagen still trades
+  // plenty of flats from 1800, 1810 and 1860; detached houses that old are rare
+  // enough that no decade before 1850 clears the threshold.
+  const cd = Object.keys(bd.condo || {}).map(Number), vd = Object.keys(bd.villa || {}).map(Number);
+  const gap = (S.type === 'all' && cd.length && vd.length) ? Math.min(...vd) - Math.min(...cd) : 0;
+  if (note) note.textContent = 'Median realiseret kr/m² efter opførelsesårti (BBR), hele regionen, seneste 12 mdr. Et årti vises kun med mindst 25 tinglyste salg.'
+    + (gap > 0 ? ` Derfor starter ejerlejlighederne i ${Math.min(...cd)}erne og villaerne først i ${Math.min(...vd)}erne — der handles for få så gamle huse til, at medianen er til at stole på.` : '')
+    + ' Kilde: Boliga/tinglysning + BBR.';
 }
 
 // rows: [{label, value, n?, color?}].  opt: yfmt (y-axis + on-column label),
@@ -717,31 +755,67 @@ function renderMuniStats() {
   const eCol = ['#1a9e5f', '#5bbf4a', '#a7d234', '#f5c518', '#f39325', '#e5622d', '#d0342c'];
   const energyE = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
     .map((l, i) => ({ label: l.toUpperCase(), count: rows.filter(r => String(r.e || '').toLowerCase().startsWith(l)).length, color: eCol[i] }));
-  const blk = (title, entries) => el('div', { class: 'dist-block' }, el('div', { class: 'dist-title' }, title), distBar(entries));
-  box.append(el('p', { class: 'chart-note' }, `Fordeling af værelsesantal og energimærke blandt boligerne til salg i ${name} lige nu — bredden af hvert farvet segment er dets andel; hold musen over et segment for tal.`));
+  const blk = (title, entries) => el('div', { class: 'dist-block' }, el('div', { class: 'dist-title' }, title), distBar(entries, 'boliger'));
+  box.append(el('p', { class: 'chart-note' }, `Fordeling af værelsesantal og energimærke blandt boligerne til salg i ${name} lige nu — bredden af hvert farvet segment er dets andel; peg på et segment for tal.`));
   box.append(el('div', { class: 'dist-wrap' }, blk('Værelser', roomsE), blk('Energimærke', energyE)));
 }
-// segmented proportion bar for a small distribution
-function distBar(entries) {
+// segmented proportion bar for a small distribution. The segments used to carry
+// their numbers in a native `title`, which on desktop means a ~1 s delay, an
+// OS-styled box that doesn't match anything else on the page, and nothing at
+// all on touch — so the note promising "hold musen over et segment for tal"
+// wasn't kept. Use the same showTip/hideTip tooltip every other chart uses.
+function distBar(entries, unit) {
   const total = entries.reduce((a, e) => a + e.count, 0) || 1;
   const bar = el('div', { class: 'distbar' });
   entries.forEach(e => {
     if (!e.count) return;
     const pct = e.count / total;
-    const seg = el('span', { class: 'distseg', style: `width:${(pct * 100).toFixed(1)}%;background:${e.color}`, title: `${e.label}: ${e.count} (${Math.round(pct * 100)} %)` });
+    const seg = el('span', { class: 'distseg', style: `width:${(pct * 100).toFixed(1)}%;background:${e.color}` });
     if (pct > 0.1) seg.textContent = e.label;
+    const tip = `<div class="tt-title">${e.label}</div>` +
+      `<div class="tt-row"><span>Boliger</span><b>${num(e.count)}</b></div>` +
+      `<div class="tt-row"><span>Andel</span><b>${(pct * 100).toLocaleString('da-DK', { maximumFractionDigits: 1 })} %</b></div>` +
+      `<div class="tt-row"><span>Ud af</span><b>${num(total)} ${unit || 'boliger'}</b></div>`;
+    seg.addEventListener('mousemove', ev => showTip(tip, ev.clientX, ev.clientY));
+    seg.addEventListener('mouseleave', hideTip);
     bar.append(seg);
   });
+  bar.addEventListener('mouseleave', hideTip);
   return bar;
 }
 
+// Median kr/m² by walking distance to the nearest S-tog station. Restricted to
+// kommuner that actually *have* an S-tog station, for the same reason the
+// headline S-togspræmie is: 7 of the 28 kommuner (Dragør, Fredensborg,
+// Gribskov, Halsnæs, Helsingør, Hørsholm, Tårnby) have no S-tog-near listing at
+// all, and most are cheap outer ones. Left unrestricted, 1.088 of the 1.455
+// homes in the "over 4 km" bucket were ones that could never be near an S-tog
+// whatever they cost, pushing that bar down to ~39.000 kr/m² against ~47.000
+// for far-from-the-station homes in S-tog kommuner — turning a kommune-level
+// price difference into what looked like a distance effect.
 function renderDistChart(f) {
+  const served = new Set(f.filter(r => r.near).map(r => r.muni));   // same rule as the S-togspræmie
+  const g = f.filter(r => served.has(r.muni));
   const buckets = [['0–500 m', 0, 500], ['500 m–1 km', 500, 1000], ['1–2 km', 1000, 2000], ['2–4 km', 2000, 4000], ['over 4 km', 4000, Infinity]];
   const rows = buckets.map(([label, lo, hi]) => {
-    const arr = f.filter(r => r.sst >= lo && r.sst < hi).map(r => r.m2p).filter(Boolean);
+    const arr = g.filter(r => r.sst >= lo && r.sst < hi).map(r => r.m2p).filter(Boolean);
     return { label, value: Math.round(median(arr) || 0), n: arr.length };
   }).filter(r => r.n);
+  const note = $('#distNote');
+  // Nothing left to compare when every selected kommune is S-tog-less — say so
+  // rather than dropping a bare "ingen data" on a chart that has the answer.
+  if (!served.size) {
+    $('#chartDist').innerHTML = '';
+    $('#chartDist').append(el('div', { class: 'loading' }, 'Ingen S-tog i de valgte kommuner — der er ingen afstandseffekt at måle.'));
+    if (note) note.textContent = 'Søjlerne kræver mindst én kommune med S-tog, ellers ville de vise kommuneforskelle frem for afstand til stationen.';
+    return;
+  }
   vbars($('#chartDist'), rows, { angle: 0, padB: 34, yfmt: kc, fmt: m2, vlabel: 'Median pris/m²' });
+  if (note) {
+    const out = f.length - g.length;
+    note.textContent = 'Median udbudspris pr. m² efter gåafstand til nærmeste S-togsstation.'
+      + (out > 0 ? ` Kun kommuner med mindst én S-togsnær bolig — ${num(out)} boliger i kommuner uden S-tog er holdt ude, så søjlerne måler afstand og ikke kommune.` : '');
+  }
 }
 
 function renderDaysChart(f) {
@@ -1069,7 +1143,7 @@ function renderTrendChart() {
   const mount = $('#chartTrend'); const hist = (S.history && S.history.series) || [];
   const metric = $('#trendMetric').value;
   const scope = S.munis.size === 1 ? [...S.munis][0] : 'all';
-  const scopeName = scope === 'all' ? 'hele korridoren' : (S.meta.municipalities.find(m => m.slug === scope) || {}).name;
+  const scopeName = scope === 'all' ? 'hele regionen' : (S.meta.municipalities.find(m => m.slug === scope) || {}).name;
   const dates = [...new Set(hist.filter(r => r.scope === scope).map(r => r.date))].sort();
   $('#trendSrc').textContent = '· ' + scopeName + (dates.length < 2 ? ' · bygges op fra ' + (dates[0] || '') : ' · vores daglige målinger');
   const rowOf = (t, d) => hist.find(r => r.scope === scope && r.type === t && r.date === d);

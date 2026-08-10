@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bolig Tracker — boligmarkedet i hovedstadsområdet</title>
-<meta name="description" content="Bolig Tracker — overblik over boligmarkedet fra København til Hillerød: udbud, realiserede salgspriser, kvadratmeterpriser, kort og realkreditrenter. Data fra boligsiden.dk, tinglysning og Danmarks Statistik.">
+<meta name="description" content="Bolig Tracker — overblik over boligmarkedet i Region Hovedstaden: udbud, realiserede salgspriser, kvadratmeterpriser, kort og realkreditrenter. Data fra boligsiden.dk, tinglysning og Danmarks Statistik.">
 <link rel="canonical" href="https://boligtracker.dk/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Bolig Tracker">
 <meta property="og:title" content="Bolig Tracker — boligmarkedet i hovedstadsområdet">
-<meta property="og:description" content="Overblik over boligmarkedet fra København til Hillerød: udbud, realiserede salgspriser, kvadratmeterpriser, kort og realkreditrenter.">
+<meta property="og:description" content="Overblik over boligmarkedet i Region Hovedstaden: udbud, realiserede salgspriser, kvadratmeterpriser, kort og realkreditrenter.">
 <meta property="og:url" content="https://boligtracker.dk/">
 <meta property="og:image" content="https://boligtracker.dk/icon-512.png">
 <meta name="twitter:card" content="summary">
@@ -24,7 +24,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="styles.css?v=68">
+<link rel="stylesheet" href="styles.css?v=69">
 </head>
 <body>
 <div id="app">
@@ -33,7 +33,7 @@
       <img class="brand-mark" src="logo.svg?v=17" alt="Bolig Tracker" width="38" height="38">
       <div>
         <h1>Bolig Tracker</h1>
-        <p class="tagline">Boligmarkedet fra København til Hillerød</p>
+        <p class="tagline">Boligmarkedet i Region Hovedstaden</p>
       </div>
     </div>
     <div class="topbar-right">
@@ -230,6 +230,7 @@
     <div class="card">
       <div class="card-head"><h2>S-togspræmie — pris pr. m² efter afstand til S-tog</h2></div>
       <div id="chartDist" class="chart"></div>
+      <p class="chart-note" id="distNote"></p>
     </div>
 
     <div class="card">
@@ -299,7 +300,7 @@
 <div id="tooltip" class="tooltip" hidden></div>
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="model.js?v=13"></script>
-<script src="app.js?v=79"></script>
+<script src="app.js?v=80"></script>
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 <script data-goatcounter="https://adamsinator.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>

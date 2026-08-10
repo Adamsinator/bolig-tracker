@@ -6,10 +6,10 @@
    cached, no matter how many times a returning visitor reloads. Data JSON
    is network-first with a cache fallback so you always get fresh listings
    when online. */
-const CACHE = 'bolig-tracker-v103';
+const CACHE = 'bolig-tracker-v104';
 const SHELL = [
-  './', './index.html', './styles.css?v=68', './app.js?v=79',
-  './model.html', './model.js?v=13', './modelpage.js?v=13',
+  './', './index.html', './styles.css?v=69', './app.js?v=80',
+  './model.html', './model.js?v=13', './modelpage.js?v=14',
   './renter.html', './renter.js?v=44', './om.html',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
   './logo.svg?v=17', './icon-192.png?v=17', './apple-touch-icon.png?v=17',
