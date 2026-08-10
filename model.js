@@ -89,14 +89,26 @@
     // normal value and the count scales with the home.
     const medRoomSize = median(rows.filter(r => r.a > 0 && r.r > 0).map(r => r.a / r.r)) || 30;
     const roomsOf = r => (r.r > 0 ? r.r : (r.a > 0 ? Math.max(1, Math.round(r.a / medRoomSize)) : 0));
-    // Tested and rejected: a top-floor and a stueetage dummy, using the building's
-    // real height from DAR's unit register. Measured against a model with the
-    // floor term removed they looked strong (top +5 %, stue -4 % in blocks of 4+
-    // floors), but that is the *total* height effect, which the linear etage term
-    // already carries. Put back in alongside it, both coefficients collapse to
-    // noise with the wrong sign (-0,4 % and +0,6 %), R² drops, and the residual by
-    // position in the building has no ordering left. Height is worth ~1,3 % per
-    // floor and a penthouse is simply the highest floor — there is no separate bump.
+    // Tested and rejected, four ways: where a flat sits *in its own building*.
+    // The building's real height is derivable — DAR's enheder register gives an
+    // etage for every unit, which matched 92 % of listed flats (Weidekampsgade 37
+    // is 7 storeys, so its "4. tv" is two below the top, not on it) — so this was
+    // measured, not assumed:
+    //   · topetage + stueetage dummies   · relativ placering (etage / bygningens højde)
+    //   · relativ placering + topetage   · "rigtigt penthouse" (top + stor + altan)
+    // Against a model with the etage term removed the dummies look strong (top
+    // +5 %, stue -4 % in blocks of 4+ floors) — but that is the *total* height
+    // effect, which the linear etage term already carries. Put back alongside it,
+    // nothing survives: coefficients collapse to noise with the wrong sign
+    // (-0,4 %, +0,6 %), and across the whole out-of-sample error distribution
+    // (p25/p50/p75/p90/mean) every variant lands within 0,1 pp of plain absolute
+    // etage, not consistently on either side. Replacing absolute etage with
+    // relative placement is clearly worse (R² 0,8550 → 0,8539).
+    // Reading: buyers pay for absolute height — light, view, street noise — not
+    // for the fraction of the building they are up. Height is ~1,3 % per floor;
+    // a penthouse is simply the highest floor. Judge a single median statistic
+    // here at your peril: it moved -0,09 pp for a change the full distribution
+    // shows to be nothing.
     const feat = r => {
       const la = Math.log(r.a);
       const f = [1, la, la * la, roomsOf(r), (r.a && roomsOf(r) ? r.a / roomsOf(r) / 40 : 0),
