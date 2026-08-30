@@ -1,12 +1,14 @@
 /* Bolig Tracker service worker — makes the installed app load instantly and
-   work offline. Shell is stale-while-revalidate: serve the cached copy
-   immediately (instant load, works offline), then refresh it from the
-   network in the background — this matters most for un-versioned shell URLs
-   (model.html, index.html, ...) that would otherwise never update once
-   cached, no matter how many times a returning visitor reloads. Data JSON
+   work offline.
+
+   Page loads (navigations) are network-first with a cached fallback, so a
+   reload always reflects what is actually deployed. Sub-resources — scripts,
+   styles, fonts — are stale-while-revalidate: serve the cached copy
+   immediately, then refresh it from the network in the background, which is
+   what makes a repeat visit instant and an offline one work at all. Data JSON
    is network-first with a cache fallback so you always get fresh listings
    when online. */
-const CACHE = 'bolig-tracker-v106';
+const CACHE = 'bolig-tracker-v107';
 const SHELL = [
   './', './index.html', './styles.css?v=69', './app.js?v=82',
   './model.html', './model.js?v=13', './modelpage.js?v=14',
@@ -45,11 +47,27 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // app shell: serve from cache immediately for speed/offline, but always
+  // Page loads: network first, cached copy only as an offline fallback.
+  //
+  // Stale-while-revalidate below is right for scripts, styles and fonts, but
+  // it was wrong for the HTML itself: it hands back the *previous* deploy and
+  // only refreshes the cache afterwards, so a returning visitor renders the
+  // old page — with the old versioned asset URLs in it — and does not see a
+  // release until their second load. That made every deploy look like it had
+  // not gone out. The HTML is a couple of KB; fetch it fresh whenever we can.
+  if (req.mode === 'navigate') {
+    e.respondWith(
+      fetch(req)
+        .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); return res; })
+        .catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // everything else: serve from cache immediately for speed/offline, but always
   // refresh the cache from the network in the background too — the old
   // version here only fetched when there was NO cached copy, so a cached
-  // shell URL (especially an un-versioned one like model.html) never got
-  // updated by a normal visit, only by a service-worker reinstall.
+  // shell URL never got updated by a normal visit, only by a SW reinstall.
   e.respondWith(
     caches.match(req).then(cached => {
       const refresh = fetch(req).then(res => {
