@@ -8,9 +8,9 @@
    what makes a repeat visit instant and an offline one work at all. Data JSON
    is network-first with a cache fallback so you always get fresh listings
    when online. */
-const CACHE = 'bolig-tracker-v108';
+const CACHE = 'bolig-tracker-v109';
 const SHELL = [
-  './', './index.html', './styles.css?v=70', './app.js?v=83',
+  './', './index.html', './styles.css?v=71', './app.js?v=84',
   './model.html', './model.js?v=13', './modelpage.js?v=14',
   './renter.html', './renter.js?v=44', './om.html',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',

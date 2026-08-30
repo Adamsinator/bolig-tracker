@@ -1324,23 +1324,26 @@ function clipToRegion(pts) {
 }
 
 function isDark() { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
-// Basemap providers, in order of preference.
-//
-// This used to be CARTO's raster tiles (basemaps.cartocdn.com). CARTO now
-// requires an API key for them and stamps an "API KEY REQUIRED" watermark on
-// unkeyed requests, and is retiring the raster service in favour of vector, so
-// a key would only buy time. Esri's Gray Canvas needs no key, comes in a light
-// and a dark variant, and is subdued enough that the price colours stay
-// readable on top of it.
-//
-// Two things differ from CARTO and are handled below: the canvas basemap is
-// label-free (place names come from a separate reference layer, drawn above the
-// base but below our own overlays), and it only has tiles down to zoom 16, so
-// maxNativeZoom lets Leaflet upscale the last two levels rather than go blank.
-//
-// The fallback covers a provider going down or blocking us — it fires on tile
-// *errors*. It would not have caught the CARTO break, which served a watermark
-// with a perfectly good 200.
+/* ---- basemap ----------------------------------------------------------
+   The real basemap is OpenFreeMap's vector tiles (OpenStreetMap data, no key,
+   no quota, no registration), rendered with MapLibre GL. Proper cartography in
+   colour, and sharp at every zoom instead of upscaling past a raster ceiling.
+
+   Getting here took two dead ends worth recording. CARTO's raster tiles, which
+   this used for a long time, now demand an API key and stamp "API KEY REQUIRED"
+   across the map; the raster service is being retired anyway, so a key would
+   only have bought time. Esri's Gray Canvas replaced it — keyless and fine
+   technically — but it is a deliberately near-colourless basemap with a cool
+   lavender cast, and no CSS filter fixes that: tinting grey only changes which
+   grey it is.
+
+   The raster stack below is still here, and still does real work: MapLibre is
+   ~270 KB gzipped and needs WebGL, so the map paints with raster tiles first
+   and swaps to vector once MapLibre has loaded (see upgradeToVector). If the
+   style fetch fails, WebGL is unavailable, or the script does not load, the
+   raster map simply stays — no broken state, no blank rectangle. Esri leads it
+   because its grey sits quietly under the price colours for the moment it is
+   visible; OSM's own tiles are the second line if Esri starts erroring. */
 const TILE_PROVIDERS = [
   {
     id: 'esri',
@@ -1358,6 +1361,65 @@ const TILE_PROVIDERS = [
   },
 ];
 let tileProvider = 0, tileErrors = 0;
+
+// OpenFreeMap's styles. "liberty" is the full-detail OSM look; "dark" is its
+// night counterpart. The dark URL is checked before use rather than assumed —
+// if it ever goes away the light style still renders, which is better than a
+// map that fails to start.
+const VECTOR_STYLE = dark => `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'liberty'}`;
+const VECTOR_ATTRIB = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragydere · fliser fra <a href="https://openfreemap.org/">OpenFreeMap</a>';
+const VEC = { layer: null, busy: false, dead: false };
+
+const loadScript = src => new Promise((ok, no) => {
+  const s = document.createElement('script'); s.src = src; s.async = true;
+  s.onload = ok; s.onerror = () => no(new Error(src)); document.head.append(s);
+});
+
+// Fetch a style, falling back to the light one if the requested variant 404s.
+async function vectorStyle(dark) {
+  for (const url of [VECTOR_STYLE(dark), VECTOR_STYLE(false)]) {
+    try { const r = await fetch(url); if (r.ok) return await r.json(); } catch (e) { /* try next */ }
+  }
+  return null;
+}
+
+// Swap the raster basemap for the vector one, once. Any failure leaves the
+// raster map in place and never tries again this session.
+async function upgradeToVector() {
+  if (VEC.busy || VEC.dead || VEC.layer || !MAP.map) return;
+  VEC.busy = true;
+  try {
+    const style = await vectorStyle(isDark());
+    if (!style) throw new Error('no style');
+    if (!window.maplibregl) {
+      if (!document.querySelector('link[data-maplibre]')) {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet'; l.href = 'vendor/maplibre/maplibre-gl.css?v=1'; l.dataset.maplibre = '1';
+        document.head.append(l);
+      }
+      await loadScript('vendor/maplibre/maplibre-gl.js?v=1');
+    }
+    // MapLibre GL dropped maplibregl.supported() after v2, so probe WebGL
+    // directly — asking the old API returns undefined and would send every
+    // browser down the raster path.
+    if (!window.maplibregl) throw new Error('no maplibre');
+    const probe = document.createElement('canvas');
+    if (!(probe.getContext('webgl2') || probe.getContext('webgl'))) throw new Error('no webgl');
+    if (!L.maplibreGL) await loadScript('vendor/maplibre/leaflet-maplibre-gl.js?v=1');
+    VEC.layer = L.maplibreGL({ style, attribution: VECTOR_ATTRIB }).addTo(MAP.map);
+    [MAP.tiles, MAP.tileLabels].forEach(l => { if (l) MAP.map.removeLayer(l); });
+    MAP.tiles = null; MAP.tileLabels = null;
+    // The bridge's layer doesn't register its attribution with Leaflet's
+    // control the way a tile layer does, and removing the raster layer takes
+    // that credit away with it — which would leave the map crediting nobody.
+    // OSM attribution is a licence condition, so add it by hand.
+    if (MAP.map.attributionControl) MAP.map.attributionControl.addAttribution(VECTOR_ATTRIB);
+  } catch (e) {
+    VEC.dead = true;   // stay on raster, quietly
+  } finally {
+    VEC.busy = false;
+  }
+}
 function regionBounds() {
   let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
   Object.values(S.geo || {}).forEach(g => { const x = g.bbox; a = Math.min(a, x[1]); b = Math.min(b, x[0]); c = Math.max(c, x[3]); d = Math.max(d, x[2]); });
@@ -1424,6 +1486,11 @@ function initMap() {
 }
 function setTiles() {
   const p = TILE_PROVIDERS[tileProvider], dark = isDark();
+  // Vector map already up: just restyle it for the theme and leave raster alone.
+  if (VEC.layer) {
+    vectorStyle(dark).then(s => { if (s && VEC.layer && VEC.layer.getMaplibreMap) VEC.layer.getMaplibreMap().setStyle(s); });
+    return;
+  }
   [MAP.tiles, MAP.tileLabels].forEach(l => { if (l) MAP.map.removeLayer(l); });
   MAP.tileLabels = null;
   const opts = { maxZoom: 19, maxNativeZoom: p.maxNativeZoom, attribution: p.attribution };
@@ -1438,6 +1505,7 @@ function setTiles() {
     tileProvider++;
     setTiles();
   });
+  upgradeToVector();   // no-op if it is already up, in flight, or has failed
 }
 
 // Show or hide the S-train / Kystbane lines and stations together.
