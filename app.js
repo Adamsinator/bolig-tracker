@@ -1324,11 +1324,40 @@ function clipToRegion(pts) {
 }
 
 function isDark() { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
-function tileUrl() {
-  return isDark()
-    ? 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-}
+// Basemap providers, in order of preference.
+//
+// This used to be CARTO's raster tiles (basemaps.cartocdn.com). CARTO now
+// requires an API key for them and stamps an "API KEY REQUIRED" watermark on
+// unkeyed requests, and is retiring the raster service in favour of vector, so
+// a key would only buy time. Esri's Gray Canvas needs no key, comes in a light
+// and a dark variant, and is subdued enough that the price colours stay
+// readable on top of it.
+//
+// Two things differ from CARTO and are handled below: the canvas basemap is
+// label-free (place names come from a separate reference layer, drawn above the
+// base but below our own overlays), and it only has tiles down to zoom 16, so
+// maxNativeZoom lets Leaflet upscale the last two levels rather than go blank.
+//
+// The fallback covers a provider going down or blocking us — it fires on tile
+// *errors*. It would not have caught the CARTO break, which served a watermark
+// with a perfectly good 200.
+const TILE_PROVIDERS = [
+  {
+    id: 'esri',
+    base: dark => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${dark ? 'Dark' : 'Light'}_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+    labels: dark => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${dark ? 'Dark' : 'Light'}_Gray_Reference/MapServer/tile/{z}/{y}/{x}`,
+    maxNativeZoom: 16,
+    attribution: 'Kortbaggrund &copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragydere',
+  },
+  {
+    id: 'osm',
+    base: () => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    labels: null,
+    maxNativeZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragydere',
+  },
+];
+let tileProvider = 0, tileErrors = 0;
 function regionBounds() {
   let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
   Object.values(S.geo || {}).forEach(g => { const x = g.bbox; a = Math.min(a, x[1]); b = Math.min(b, x[0]); c = Math.max(c, x[3]); d = Math.max(d, x[2]); });
@@ -1394,12 +1423,21 @@ function initMap() {
   MAP.inited = true;
 }
 function setTiles() {
-  if (MAP.tiles) MAP.map.removeLayer(MAP.tiles);
-  MAP.tiles = L.tileLayer(tileUrl(), {
-    subdomains: 'abcd', maxZoom: 19, detectRetina: true,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  const p = TILE_PROVIDERS[tileProvider], dark = isDark();
+  [MAP.tiles, MAP.tileLabels].forEach(l => { if (l) MAP.map.removeLayer(l); });
+  MAP.tileLabels = null;
+  const opts = { maxZoom: 19, maxNativeZoom: p.maxNativeZoom, attribution: p.attribution };
+  MAP.tiles = L.tileLayer(p.base(dark), { ...opts, zIndex: 1 }).addTo(MAP.map);
+  if (p.labels) MAP.tileLabels = L.tileLayer(p.labels(dark), { ...opts, zIndex: 2 }).addTo(MAP.map);
+  // If the basemap starts failing outright, drop to the next provider once
+  // rather than leaving the user with a grey rectangle. A handful of misses is
+  // normal at the edges of a pan, so only a sustained run counts.
+  tileErrors = 0;
+  MAP.tiles.on('tileerror', () => {
+    if (++tileErrors < 12 || tileProvider >= TILE_PROVIDERS.length - 1) return;
+    tileProvider++;
+    setTiles();
   });
-  MAP.tiles.addTo(MAP.map); MAP.tiles.bringToBack();
 }
 
 // Show or hide the S-train / Kystbane lines and stations together.
