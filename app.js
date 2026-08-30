@@ -1717,20 +1717,31 @@ function drawMap(f) {
 }
 
 function refreshMapTheme() { if (MAP.inited) { setTiles(); drawRail(); drawStations(); drawTransit(); } }
-function fitAll() { if (MAP.map) MAP.map.fitBounds(homeBounds(), { padding: [6, 6] }); }
+function fitAll() { if (MAP.map) MAP.map.fitBounds(homeBounds(), { padding: [6, 6], animate: false }); }
 function fitToSelection() {
   if (!MAP.map) return;
   const pts = [S.A, S.B].filter(Boolean);
   if (pts.length) {
     let bnd = null;
     pts.forEach(p => { const bb = L.latLng(p.lat, p.lon).toBounds((p === S.A ? S.radA : S.radB) * 2000); bnd = bnd ? bnd.extend(bb) : bb; });
-    MAP.map.fitBounds(bnd, { padding: [24, 24] }); return;
+    MAP.map.fitBounds(bnd, { padding: [24, 24], animate: false }); return;
   }
   const sel = [...S.munis].map(s => S.geo[s]).filter(Boolean);
   if (!sel.length || sel.length === S.meta.municipalities.length) { fitAll(); return; }
   let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
   sel.forEach(g => { a = Math.min(a, g.bbox[1]); b = Math.min(b, g.bbox[0]); c = Math.max(c, g.bbox[3]); d = Math.max(d, g.bbox[2]); });
-  MAP.map.fitBounds([[a, b], [c, d]], { padding: [18, 18] });
+  // Fitting a kommune's outline exactly crops it to its own border, which reads
+  // as too close in — you lose the neighbouring towns, coastline and roads that
+  // tell you where you are. Pad the box by 12 % of its span so the kommune sits
+  // in its surroundings instead of filling the frame edge to edge (Hillerød:
+  // 22 km across before, 26 km now, with all its homes still well inside).
+  //
+  // animate:false because every chip click refits. With animation on, two quick
+  // clicks leave two flights in the air and the map can settle on the earlier
+  // one — measured: selecting Gribskov, Dragør, Halsnæs or Tårnby regularly
+  // left the view on the whole region instead of the kommune. Snapping removes
+  // the race outright.
+  MAP.map.fitBounds(L.latLngBounds([a, b], [c, d]).pad(0.12), { padding: [18, 18], animate: false });
 }
 // Zoom the map to the bounding box of a set of listings — used when the search
 // narrows to a postnummer so the map shows just that area (e.g. 2900 Hellerup).
