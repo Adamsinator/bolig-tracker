@@ -36,7 +36,7 @@
   --water:        #00a7c4;
   --shadow:       none;
   --map-bg:       #dbe6ee;
-  --map-tint:     grayscale(1) brightness(1.03) contrast(.97);
+  --map-tint:     none;
   --bubble-edge:  #c7cac2;
   --land:         #ecede7;
   --land-edge:    #c9cbc2;
@@ -67,7 +67,7 @@
   --water:        #35c9e8;
   --shadow:       none;
   --map-bg:       #10161c;
-  --map-tint:     grayscale(1) brightness(.94) contrast(1.05);
+  --map-tint:     brightness(.86) saturate(.85);
   --bubble-edge:  #3a4044;
   --land:         #1c2224;
   --land-edge:    #333a3d;
@@ -83,7 +83,7 @@
     --border:rgba(241,242,238,.16); --border-2:rgba(241,242,238,.08);
     --accent:#ff5647; --geo:#ff9752; --condo:#5b9cf0; --villa:#ff9752; --good:#2fb673; --bad:#ff5647; --water:#35c9e8;
     --shadow:none;
-    --map-tint:grayscale(1) brightness(.94) contrast(1.05);
+    --map-tint:brightness(.86) saturate(.85);
     --map-bg:#10161c; --bubble-edge:#3a4044; --land:#1c2224; --land-edge:#333a3d; --land-sel:#2b2618; --land-sel-edge:#ff9752;
     --seq-1:#0f2a4a; --seq-2:#123a6b; --seq-3:#1c5aa0; --seq-4:#5b9cf0; --seq-5:#8fbdf5; --seq-6:#c2dcfa;
   }
@@ -267,12 +267,13 @@ a.map-reset { font-size:16px; line-height:26px; text-align:center; text-decorati
 .map-wrap { flex:1 1 auto; min-width:0; border-radius:0; overflow:hidden; border:1px solid var(--border); position:relative; display:flex; }
 #map { width:100%; height:100%; min-height:min(86vh,860px); background:var(--map-bg); }
 .leaflet-container { font: inherit; background:var(--map-bg); }
-/* The raster basemap (Esri Gray Canvas) is now only what shows for the moment
-   before MapLibre loads, and it has a cool lavender cast. Take the hue out so
-   that moment doesn't flash a differently-coloured map. Scoped to raster tile
-   *images* deliberately: the vector basemap renders to a canvas in this same
-   pane and must not be filtered. Kommune outlines, S-tog lines, home dots and
-   labels live in other panes and keep their colours either way. */
+/* Only the raster fallback (OpenStreetMap's own tiles, used when WebGL or
+   OpenFreeMap is unavailable) is filtered, and in light mode not at all — the
+   greyscale here was for Esri's lavender canvas, which is gone. Dark mode
+   knocks OSM's bright tiles back so they don't glare under the price dots.
+   Scoped to raster tile *images* deliberately: the vector basemap renders to a
+   canvas in this same pane and must not be filtered, and kommune outlines,
+   S-tog lines, home dots and labels live in other panes regardless. */
 .leaflet-tile-pane img.leaflet-tile { filter: var(--map-tint); }
 /* station name labels */
 .st-name { font-size:10.5px; font-weight:700; font-family:var(--font-data); color:var(--ink); white-space:nowrap;

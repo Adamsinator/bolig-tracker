@@ -1341,17 +1341,19 @@ function isDark() { const t = document.documentElement.getAttribute('data-theme'
    ~270 KB gzipped and needs WebGL, so the map paints with raster tiles first
    and swaps to vector once MapLibre has loaded (see upgradeToVector). If the
    style fetch fails, WebGL is unavailable, or the script does not load, the
-   raster map simply stays — no broken state, no blank rectangle. Esri leads it
-   because its grey sits quietly under the price colours for the moment it is
-   visible; OSM's own tiles are the second line if Esri starts erroring. */
+   raster map simply stays — no broken state, no blank rectangle.
+
+   Esri used to lead that fallback list and is now gone from it entirely. Two
+   reasons, and the first is the one that mattered: the raster layer was added
+   up front on *every* load and only replaced once MapLibre had finished, so
+   whatever Esri served was on screen for a second or so each time, and stayed
+   permanently on any device where WebGL or the script failed. Esri's legacy
+   arcgisonline tile services are ones Esri itself describes as mature and no
+   longer updated, applications were told to migrate off them years ago, and
+   they now show an API-key watermark. Chaining one basemap that demands a key
+   behind another was the mistake — OpenStreetMap's own tiles are the whole
+   fallback now: keyless, unambiguous terms, and nothing to watermark. */
 const TILE_PROVIDERS = [
-  {
-    id: 'esri',
-    base: dark => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${dark ? 'Dark' : 'Light'}_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
-    labels: dark => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${dark ? 'Dark' : 'Light'}_Gray_Reference/MapServer/tile/{z}/{y}/{x}`,
-    maxNativeZoom: 16,
-    attribution: 'Kortbaggrund &copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragydere',
-  },
   {
     id: 'osm',
     base: () => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -1383,8 +1385,13 @@ async function vectorStyle(dark) {
   return null;
 }
 
-// Swap the raster basemap for the vector one, once. Any failure leaves the
-// raster map in place and never tries again this session.
+// Bring up the vector basemap. Called instead of, not after, the raster one:
+// the map shows its own background colour for the moment this takes (the
+// kommune outlines, rail lines and home dots are drawn immediately regardless),
+// and raster tiles are requested only if this fails. Showing a stand-in
+// basemap first meant every single load flashed up a third-party map we then
+// threw away — which is exactly how a provider's API-key watermark ended up on
+// screen twice.
 async function upgradeToVector() {
   if (VEC.busy || VEC.dead || VEC.layer || !MAP.map) return;
   VEC.busy = true;
@@ -1415,7 +1422,8 @@ async function upgradeToVector() {
     // OSM attribution is a licence condition, so add it by hand.
     if (MAP.map.attributionControl) MAP.map.attributionControl.addAttribution(VECTOR_ATTRIB);
   } catch (e) {
-    VEC.dead = true;   // stay on raster, quietly
+    VEC.dead = true;
+    setRasterTiles();   // only now do we ask a third party for image tiles
   } finally {
     VEC.busy = false;
   }
@@ -1484,28 +1492,33 @@ function initMap() {
   addEventListener('resize', () => map.invalidateSize());
   MAP.inited = true;
 }
+// The basemap entry point: vector first, raster only as a rescue.
 function setTiles() {
-  const p = TILE_PROVIDERS[tileProvider], dark = isDark();
-  // Vector map already up: just restyle it for the theme and leave raster alone.
+  // Vector map already up: just restyle it for the theme.
   if (VEC.layer) {
-    vectorStyle(dark).then(s => { if (s && VEC.layer && VEC.layer.getMaplibreMap) VEC.layer.getMaplibreMap().setStyle(s); });
+    vectorStyle(isDark()).then(s => { if (s && VEC.layer && VEC.layer.getMaplibreMap) VEC.layer.getMaplibreMap().setStyle(s); });
     return;
   }
+  if (MAP.tiles) { setRasterTiles(); return; }   // already fell back — keep it in step with the theme
+  upgradeToVector();
+}
+
+function setRasterTiles() {
+  const p = TILE_PROVIDERS[tileProvider], dark = isDark();
   [MAP.tiles, MAP.tileLabels].forEach(l => { if (l) MAP.map.removeLayer(l); });
   MAP.tileLabels = null;
   const opts = { maxZoom: 19, maxNativeZoom: p.maxNativeZoom, attribution: p.attribution };
   MAP.tiles = L.tileLayer(p.base(dark), { ...opts, zIndex: 1 }).addTo(MAP.map);
   if (p.labels) MAP.tileLabels = L.tileLayer(p.labels(dark), { ...opts, zIndex: 2 }).addTo(MAP.map);
-  // If the basemap starts failing outright, drop to the next provider once
-  // rather than leaving the user with a grey rectangle. A handful of misses is
-  // normal at the edges of a pan, so only a sustained run counts.
+  // If this provider starts failing outright, move to the next one rather than
+  // leaving a blank rectangle. A handful of misses is normal at the edges of a
+  // pan, so only a sustained run counts.
   tileErrors = 0;
   MAP.tiles.on('tileerror', () => {
     if (++tileErrors < 12 || tileProvider >= TILE_PROVIDERS.length - 1) return;
     tileProvider++;
-    setTiles();
+    setRasterTiles();
   });
-  upgradeToVector();   // no-op if it is already up, in flight, or has failed
 }
 
 // Show or hide the S-train / Kystbane lines and stations together.
